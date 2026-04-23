@@ -1,0 +1,793 @@
+import { useState, useEffect, useRef, useCallback } from "react";
+
+// ─── DESIGN TOKENS ────────────────────────────────────────────────────────────
+const C = {
+  bg: "#030712", surface: "#0B1117", border: "#1F2937",
+  cyan: "#38BDF8", indigo: "#818CF8", emerald: "#34D399",
+  amber: "#F59E0B", rose: "#FB7185", violet: "#A78BFA",
+  slate4: "#94A3B8", slate5: "#64748B", slate6: "#475569",
+};
+
+// ─── FULL SCHEME DATA ─────────────────────────────────────────────────────────
+const SCHEMES = [
+  { code:"IN",  name:"India",          scheme:"UPI",                   authority:"NPCI / Reserve Bank of India",          launch_year:2016, maturity:"Leader",      p2p:true,  p2b:true,  iso20022:false, api_standard:"NPCI UPI Spec 2.0", protocol:"REST/JSON", tx_limit_usd:2400,    daily_volume_m:400,  interop:"NEXUS (pilot)", gdp_impact:"High", lat:20.59, lng:78.96 },
+  { code:"BR",  name:"Brazil",         scheme:"Pix",                   authority:"Banco Central do Brasil",                launch_year:2020, maturity:"Leader",      p2p:true,  p2b:true,  iso20022:true,  api_standard:"ISO 20022 pacs.008", protocol:"REST+ISO",  tx_limit_usd:null,    daily_volume_m:60,   interop:"SWIFT GPI",     gdp_impact:"High", lat:-14.23, lng:-51.92 },
+  { code:"GB",  name:"United Kingdom", scheme:"Faster Payments",       authority:"Pay.UK / Bank of England",              launch_year:2008, maturity:"Leader",      p2p:true,  p2b:true,  iso20022:true,  api_standard:"ISO 20022 pacs.008", protocol:"ISO 20022", tx_limit_usd:1250000, daily_volume_m:9,    interop:"SEPA Instant",  gdp_impact:"High", lat:55.37, lng:-3.43 },
+  { code:"SG",  name:"Singapore",      scheme:"PayNow",                authority:"MAS / ABS",                             launch_year:2017, maturity:"Leader",      p2p:true,  p2b:true,  iso20022:true,  api_standard:"ISO 20022 pacs.008", protocol:"ISO 20022", tx_limit_usd:75000,   daily_volume_m:2,    interop:"PromptPay(TH)", gdp_impact:"High", lat:1.35, lng:103.81 },
+  { code:"MX",  name:"Mexico",         scheme:"SPEI",                  authority:"Banco de México",                       launch_year:2004, maturity:"Leader",      p2p:true,  p2b:true,  iso20022:false, api_standard:"Banxico SPEI API",   protocol:"SOAP/XML",  tx_limit_usd:null,    daily_volume_m:8,    interop:"None public",   gdp_impact:"High", lat:23.63, lng:-102.55 },
+  { code:"SE",  name:"Sweden",         scheme:"Swish / BiR",           authority:"Riksbank / Bankgirot",                  launch_year:2012, maturity:"Leader",      p2p:true,  p2b:true,  iso20022:true,  api_standard:"ISO 20022 + PSD2",   protocol:"REST+ISO",  tx_limit_usd:15000,   daily_volume_m:1.5,  interop:"SEPA Instant",  gdp_impact:"High", lat:60.12, lng:18.64 },
+  { code:"CN",  name:"China",          scheme:"IBPS / CNAPS",          authority:"People's Bank of China",                launch_year:2010, maturity:"Leader",      p2p:true,  p2b:true,  iso20022:false, api_standard:"PBOC Proprietary",   protocol:"Proprietary",tx_limit_usd:null,   daily_volume_m:200,  interop:"None public",   gdp_impact:"High", lat:35.86, lng:104.19 },
+  { code:"AU",  name:"Australia",      scheme:"NPP (Osko)",            authority:"Reserve Bank of Australia",             launch_year:2018, maturity:"Established", p2p:true,  p2b:true,  iso20022:true,  api_standard:"ISO 20022 pacs.008", protocol:"ISO 20022", tx_limit_usd:null,    daily_volume_m:1,    interop:"SWIFT GPI",     gdp_impact:"Medium", lat:-25.27, lng:133.77 },
+  { code:"EU",  name:"Eurozone",       scheme:"SEPA Instant",          authority:"European Central Bank / EPC",           launch_year:2017, maturity:"Established", p2p:true,  p2b:true,  iso20022:true,  api_standard:"ISO 20022 pacs.008", protocol:"ISO 20022", tx_limit_usd:110000,  daily_volume_m:15,   interop:"RT1 / TIPS",    gdp_impact:"High", lat:50.85, lng:4.35 },
+  { code:"JP",  name:"Japan",          scheme:"Zengin Instant",        authority:"Bank of Japan / ZENGINKYO",             launch_year:2018, maturity:"Established", p2p:true,  p2b:true,  iso20022:false, api_standard:"Zengin Proprietary", protocol:"Proprietary",tx_limit_usd:null,   daily_volume_m:5,    interop:"SWIFT GPI",     gdp_impact:"Medium", lat:36.20, lng:138.25 },
+  { code:"TH",  name:"Thailand",       scheme:"PromptPay",             authority:"Bank of Thailand",                      launch_year:2017, maturity:"Established", p2p:true,  p2b:true,  iso20022:false, api_standard:"BOT Proprietary",    protocol:"REST/JSON", tx_limit_usd:8000,    daily_volume_m:18,   interop:"PayNow (SG)",   gdp_impact:"Medium", lat:15.87, lng:100.99 },
+  { code:"NG",  name:"Nigeria",        scheme:"NIP (NIBSS)",           authority:"CBN / NIBSS",                           launch_year:2011, maturity:"Established", p2p:true,  p2b:true,  iso20022:false, api_standard:"NIBSS Proprietary",  protocol:"REST/JSON", tx_limit_usd:3000,    daily_volume_m:12,   interop:"None public",   gdp_impact:"High", lat:9.08, lng:8.67 },
+  { code:"ZA",  name:"South Africa",   scheme:"RTC",                   authority:"PASA / SARB",                           launch_year:2006, maturity:"Established", p2p:true,  p2b:true,  iso20022:false, api_standard:"PASA Proprietary",   protocol:"SOAP/XML",  tx_limit_usd:27000,   daily_volume_m:0.8,  interop:"None public",   gdp_impact:"Medium", lat:-30.55, lng:22.93 },
+  { code:"MY",  name:"Malaysia",       scheme:"DuitNow",               authority:"BNM / PayNet",                          launch_year:2018, maturity:"Established", p2p:true,  p2b:true,  iso20022:false, api_standard:"PayNet API 2.0",     protocol:"REST/JSON", tx_limit_usd:23000,   daily_volume_m:2,    interop:"None public",   gdp_impact:"Medium", lat:4.21, lng:101.97 },
+  { code:"DE",  name:"Germany",        scheme:"SEPA Instant",          authority:"Deutsche Bundesbank / EPC",             launch_year:2017, maturity:"Established", p2p:true,  p2b:true,  iso20022:true,  api_standard:"ISO 20022 pacs.008", protocol:"ISO 20022", tx_limit_usd:110000,  daily_volume_m:3,    interop:"RT1 / TIPS",    gdp_impact:"High", lat:51.16, lng:10.45 },
+  { code:"RU",  name:"Russia",         scheme:"SBP",                   authority:"Bank of Russia",                        launch_year:2019, maturity:"Established", p2p:true,  p2b:true,  iso20022:false, api_standard:"CBR Proprietary",    protocol:"REST/JSON", tx_limit_usd:null,    daily_volume_m:10,   interop:"None public",   gdp_impact:"Medium", lat:61.52, lng:105.31 },
+  { code:"US",  name:"United States",  scheme:"FedNow",                authority:"Federal Reserve",                       launch_year:2023, maturity:"Developing",  p2p:true,  p2b:false, iso20022:true,  api_standard:"ISO 20022 pacs.008", protocol:"ISO 20022", tx_limit_usd:500000,  daily_volume_m:0.5,  interop:"RTP (TCH)",     gdp_impact:"High", lat:37.09, lng:-95.71 },
+  { code:"PK",  name:"Pakistan",       scheme:"RAAST",                 authority:"State Bank of Pakistan",                launch_year:2021, maturity:"Developing",  p2p:true,  p2b:false, iso20022:true,  api_standard:"ISO 20022 pacs.008", protocol:"ISO 20022", tx_limit_usd:3600,    daily_volume_m:1,    interop:"None public",   gdp_impact:"Medium", lat:30.37, lng:69.34 },
+  { code:"ID",  name:"Indonesia",      scheme:"BI-FAST",               authority:"Bank Indonesia",                        launch_year:2021, maturity:"Developing",  p2p:true,  p2b:false, iso20022:true,  api_standard:"ISO 20022 pacs.008", protocol:"ISO 20022", tx_limit_usd:3200,    daily_volume_m:4,    interop:"None public",   gdp_impact:"Medium", lat:-0.78, lng:113.92 },
+  { code:"CA",  name:"Canada",         scheme:"Interac RTP",           authority:"Bank of Canada / Payments Canada",      launch_year:2023, maturity:"Developing",  p2p:true,  p2b:false, iso20022:true,  api_standard:"ISO 20022 pacs.008", protocol:"ISO 20022", tx_limit_usd:null,    daily_volume_m:0.4,  interop:"FedNow (pilot)",gdp_impact:"Medium", lat:56.13, lng:-106.34 },
+  { code:"SA",  name:"Saudi Arabia",   scheme:"sarie",                 authority:"Saudi Central Bank (SAMA)",             launch_year:2021, maturity:"Developing",  p2p:true,  p2b:true,  iso20022:true,  api_standard:"ISO 20022 pacs.008", protocol:"ISO 20022", tx_limit_usd:null,    daily_volume_m:1,    interop:"None public",   gdp_impact:"Medium", lat:23.88, lng:45.07 },
+  { code:"AE",  name:"UAE",            scheme:"IPP",                   authority:"Central Bank of the UAE",               launch_year:2023, maturity:"Developing",  p2p:true,  p2b:false, iso20022:true,  api_standard:"ISO 20022 pacs.008", protocol:"ISO 20022", tx_limit_usd:null,    daily_volume_m:0.3,  interop:"None public",   gdp_impact:"Low", lat:23.42, lng:53.84 },
+  { code:"AR",  name:"Argentina",      scheme:"Transferencias 3.0",    authority:"BCRA",                                  launch_year:2021, maturity:"Developing",  p2p:true,  p2b:true,  iso20022:false, api_standard:"BCRA Proprietary",   protocol:"REST/JSON", tx_limit_usd:null,    daily_volume_m:2,    interop:"None public",   gdp_impact:"Medium", lat:-38.41, lng:-63.61 },
+  { code:"PH",  name:"Philippines",    scheme:"InstaPay",              authority:"BSP / PhilPaSSplus",                    launch_year:2018, maturity:"Developing",  p2p:true,  p2b:false, iso20022:false, api_standard:"BSP API 1.0",        protocol:"REST/JSON", tx_limit_usd:1800,    daily_volume_m:0.8,  interop:"None public",   gdp_impact:"Low", lat:12.87, lng:121.77 },
+  { code:"KE",  name:"Kenya",          scheme:"PesaLink",              authority:"KBA / CBK",                             launch_year:2017, maturity:"Developing",  p2p:true,  p2b:false, iso20022:false, api_standard:"KBA Proprietary",    protocol:"REST/JSON", tx_limit_usd:2800,    daily_volume_m:0.3,  interop:"None public",   gdp_impact:"Low", lat:-0.02, lng:37.90 },
+  { code:"EG",  name:"Egypt",          scheme:"InstaPay EG",           authority:"Central Bank of Egypt",                 launch_year:2022, maturity:"Developing",  p2p:true,  p2b:false, iso20022:false, api_standard:"CBE Proprietary",    protocol:"REST/JSON", tx_limit_usd:6000,    daily_volume_m:0.5,  interop:"None public",   gdp_impact:"Low", lat:26.82, lng:30.80 },
+  { code:"GH",  name:"Ghana",          scheme:"GhIPSS Instant Pay",    authority:"Bank of Ghana / GhIPSS",                launch_year:2016, maturity:"Developing",  p2p:true,  p2b:false, iso20022:false, api_standard:"GhIPSS Proprietary", protocol:"REST/JSON", tx_limit_usd:1700,    daily_volume_m:0.2,  interop:"None public",   gdp_impact:"Low", lat:7.94, lng:-1.02 },
+];
+
+const MATURITY_META = {
+  Leader:      { color: C.cyan,    rank: 3, desc: "Fully scaled, high-volume, widely adopted" },
+  Established: { color: C.indigo,  rank: 2, desc: "Operational with growing adoption" },
+  Developing:  { color: C.emerald, rank: 1, desc: "Live but early-stage or limited reach" },
+};
+
+const TIMELINE_YEARS = Array.from({ length: 2024 - 2004 }, (_, i) => 2004 + i);
+
+// ─── HELPERS ──────────────────────────────────────────────────────────────────
+function latLngToXY(lat, lng, W, H) {
+  const x = ((lng + 180) / 360) * W;
+  const latRad = (lat * Math.PI) / 180;
+  const mercN = Math.log(Math.tan(Math.PI / 4 + latRad / 2));
+  const y = H / 2 - (H * mercN) / (2 * Math.PI);
+  return { x, y };
+}
+
+function useAnimOffset(speed = 1) {
+  const [off, setOff] = useState(0);
+  useEffect(() => {
+    let raf;
+    const tick = () => { setOff(o => (o - speed * 0.3) % 60); raf = requestAnimationFrame(tick); };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [speed]);
+  return off;
+}
+
+// ─── COMPONENTS ───────────────────────────────────────────────────────────────
+const Tag = ({ label, active, color }) => (
+  <span className="text-xs px-2 py-0.5 rounded font-mono transition-all"
+    style={{
+      background: active ? `${color || C.cyan}20` : "#1F293780",
+      color: active ? (color || C.cyan) : C.slate6,
+      border: `1px solid ${active ? `${color || C.cyan}40` : "#1F293740"}`,
+    }}>{label}</span>
+);
+
+const Pill = ({ label, color }) => (
+  <span className="text-xs px-2 py-0.5 rounded-full font-mono font-bold"
+    style={{ color, border: `1px solid ${color}50`, background: `${color}15` }}>{label}</span>
+);
+
+const Divider = ({ label }) => (
+  <div className="flex items-center gap-2 my-1">
+    <div className="flex-1 h-px bg-slate-800"/>
+    <span className="text-xs text-slate-700 font-mono tracking-widest">{label}</span>
+    <div className="flex-1 h-px bg-slate-800"/>
+  </div>
+);
+
+// ─── WORLD MAP VIEW ───────────────────────────────────────────────────────────
+function MapView({ schemes, selected, onSelect, yearRange }) {
+  const W = 820, H = 390;
+  const gridLines = [];
+  for (let lon = -180; lon <= 180; lon += 30) {
+    const { x } = latLngToXY(0, lon, W, H);
+    gridLines.push(<line key={`v${lon}`} x1={x} y1={0} x2={x} y2={H} stroke="#0F1A2A" strokeWidth="0.5"/>);
+  }
+  for (let lat = -60; lat <= 80; lat += 30) {
+    const { y } = latLngToXY(lat, 0, W, H);
+    gridLines.push(<line key={`h${lat}`} x1={0} y1={y} x2={W} y2={y} stroke="#0F1A2A" strokeWidth="0.5"/>);
+  }
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-full">
+      <defs>
+        {Object.entries(MATURITY_META).map(([k, v]) => (
+          <radialGradient key={k} id={`mg-${k}`} cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stopColor={v.color} stopOpacity="0.95"/>
+            <stop offset="100%" stopColor={v.color} stopOpacity="0.1"/>
+          </radialGradient>
+        ))}
+        <filter id="mglow"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+        <pattern id="dots" x="0" y="0" width="20" height="20" patternUnits="userSpaceOnUse">
+          <circle cx="1" cy="1" r="0.5" fill="#0D1B2A"/>
+        </pattern>
+      </defs>
+      <rect width={W} height={H} fill="#040C18"/>
+      <rect width={W} height={H} fill="url(#dots)"/>
+      {gridLines}
+      {(() => { const { y } = latLngToXY(0, 0, W, H); return <line x1={0} y1={y} x2={W} y2={y} stroke="#38BDF815" strokeWidth="1"/>; })()}
+
+      {schemes.map(s => {
+        const { x, y } = latLngToXY(s.lat, s.lng, W, H);
+        const cfg = MATURITY_META[s.maturity];
+        const inRange = s.launch_year >= yearRange[0] && s.launch_year <= yearRange[1];
+        const isSel = selected?.code === s.code;
+        const r = Math.min(14, 4 + Math.log10((s.daily_volume_m || 0.1) + 1) * 5);
+        const op = inRange ? 1 : 0.12;
+        return (
+          <g key={s.code} onClick={() => onSelect(s.code === selected?.code ? null : s)} style={{ cursor: "pointer", opacity: op }}>
+            {isSel && <circle cx={x} cy={y} r={r + 10} fill="none" stroke={cfg.color} strokeWidth="1.5" opacity="0.4">
+              <animate attributeName="r" values={`${r+8};${r+18};${r+8}`} dur="2s" repeatCount="indefinite"/>
+              <animate attributeName="opacity" values="0.5;0.05;0.5" dur="2s" repeatCount="indefinite"/>
+            </circle>}
+            <circle cx={x} cy={y} r={r + 5} fill={cfg.color} opacity="0.06"/>
+            <circle cx={x} cy={y} r={r} fill={`url(#mg-${s.maturity})`}
+              filter={isSel ? "url(#mglow)" : undefined}
+              stroke={isSel ? cfg.color : "none"} strokeWidth="1.5"/>
+            {inRange && <text x={x} y={y - r - 5} textAnchor="middle" fontSize="7.5" fill={`${cfg.color}CC`} fontFamily="monospace">{s.code}</text>}
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+// ─── BENCHMARK BARS ───────────────────────────────────────────────────────────
+function BenchmarkChart({ schemes, metric, label }) {
+  const sorted = [...schemes].sort((a, b) => (b[metric] || 0) - (a[metric] || 0)).slice(0, 10);
+  const max = sorted[0]?.[metric] || 1;
+  return (
+    <div className="space-y-1.5">
+      {sorted.map(s => {
+        const val = s[metric] || 0;
+        const pct = (val / max) * 100;
+        const color = MATURITY_META[s.maturity].color;
+        return (
+          <div key={s.code}>
+            <div className="flex justify-between text-xs mb-0.5">
+              <span className="text-slate-300 font-mono">{s.code} <span className="text-slate-600">{s.scheme}</span></span>
+              <span className="font-mono" style={{ color }}>{metric === "daily_volume_m" ? (val >= 1 ? `${val}M` : `${(val * 1000).toFixed(0)}K`) : val || "—"}</span>
+            </div>
+            <div className="h-1.5 rounded-full bg-slate-800 overflow-hidden">
+              <div className="h-full rounded-full transition-all duration-500" style={{ width: `${pct}%`, background: color }}/>
+            </div>
+          </div>
+        );
+      })}
+      <div className="text-xs text-slate-700 text-right mt-1">{label}</div>
+    </div>
+  );
+}
+
+// ─── TIME SLIDER ──────────────────────────────────────────────────────────────
+function TimeSlider({ yearRange, onChange }) {
+  const trackRef = useRef(null);
+  const byYear = {};
+  SCHEMES.forEach(s => { byYear[s.launch_year] = (byYear[s.launch_year] || 0) + 1; });
+  const cumulative = {};
+  let running = 0;
+  TIMELINE_YEARS.forEach(y => { running += (byYear[y] || 0); cumulative[y] = running; });
+  const maxCum = running;
+
+  const handleTrackClick = (e, isEnd) => {
+    if (!trackRef.current) return;
+    const rect = trackRef.current.getBoundingClientRect();
+    const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const year = Math.round(2004 + pct * (2023 - 2004));
+    if (isEnd) onChange([yearRange[0], Math.max(yearRange[0], year)]);
+    else onChange([Math.min(year, yearRange[1]), yearRange[1]]);
+  };
+
+  const pctStart = ((yearRange[0] - 2004) / 19) * 100;
+  const pctEnd = ((yearRange[1] - 2004) / 19) * 100;
+
+  return (
+    <div className="px-2">
+      {/* Year bar chart */}
+      <div className="flex items-end gap-px h-10 mb-2">
+        {TIMELINE_YEARS.map(yr => {
+          const count = byYear[yr] || 0;
+          const inRange = yr >= yearRange[0] && yr <= yearRange[1];
+          const h = count ? Math.max(4, (count / 4) * 32) : 2;
+          return (
+            <div key={yr} className="flex-1 flex flex-col items-center justify-end cursor-pointer"
+              onClick={() => onChange([yr, yr])}>
+              <div className="w-full rounded-t-sm transition-all duration-200"
+                style={{
+                  height: `${h}px`,
+                  background: inRange ? (count > 2 ? C.cyan : count > 1 ? C.indigo : C.emerald) : "#1F2937",
+                  opacity: inRange ? 1 : 0.3,
+                }}/>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Range track */}
+      <div ref={trackRef} className="relative h-4 flex items-center cursor-pointer"
+        onClick={e => {
+          const rect = trackRef.current.getBoundingClientRect();
+          const pct = (e.clientX - rect.left) / rect.width;
+          const year = Math.round(2004 + pct * 19);
+          const dStart = Math.abs(year - yearRange[0]);
+          const dEnd = Math.abs(year - yearRange[1]);
+          if (dStart < dEnd) onChange([Math.min(year, yearRange[1]), yearRange[1]]);
+          else onChange([yearRange[0], Math.max(yearRange[0], year)]);
+        }}>
+        <div className="absolute inset-x-0 h-1 bg-slate-800 rounded-full"/>
+        <div className="absolute h-1 rounded-full" style={{ left:`${pctStart}%`, right:`${100-pctEnd}%`, background:`linear-gradient(90deg, ${C.indigo}, ${C.cyan})` }}/>
+        {[0, 1].map(i => (
+          <div key={i} className="absolute w-3 h-3 rounded-full border-2 cursor-grab z-10"
+            style={{ left:`${i === 0 ? pctStart : pctEnd}%`, transform:"translateX(-50%)", background:C.bg, borderColor: i===0?C.indigo:C.cyan, boxShadow:`0 0 8px ${i===0?C.indigo:C.cyan}60` }}
+            onMouseDown={e => {
+              e.preventDefault();
+              const move = ev => {
+                if (!trackRef.current) return;
+                const rect = trackRef.current.getBoundingClientRect();
+                const pct = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width));
+                const year = Math.round(2004 + pct * 19);
+                if (i === 0) onChange([Math.min(year, yearRange[1]), yearRange[1]]);
+                else onChange([yearRange[0], Math.max(yearRange[0], year)]);
+              };
+              const up = () => { window.removeEventListener("mousemove", move); window.removeEventListener("mouseup", up); };
+              window.addEventListener("mousemove", move); window.addEventListener("mouseup", up);
+            }}/>
+        ))}
+      </div>
+
+      {/* Labels */}
+      <div className="flex justify-between text-xs font-mono mt-1">
+        {[2004, 2008, 2012, 2016, 2020, 2023].map(y => (
+          <span key={y} style={{ color: y >= yearRange[0] && y <= yearRange[1] ? C.cyan : C.slate6 }}>{y}</span>
+        ))}
+      </div>
+
+      {/* Active range label */}
+      <div className="flex items-center justify-center gap-2 mt-2">
+        <span className="text-xs font-mono px-3 py-1 rounded-lg" style={{ color:C.indigo, background:`${C.indigo}15`, border:`1px solid ${C.indigo}30` }}>{yearRange[0]}</span>
+        <span className="text-slate-600 text-xs">→</span>
+        <span className="text-xs font-mono px-3 py-1 rounded-lg" style={{ color:C.cyan, background:`${C.cyan}15`, border:`1px solid ${C.cyan}30` }}>{yearRange[1]}</span>
+        <span className="text-slate-500 text-xs ml-2">
+          {SCHEMES.filter(s => s.launch_year >= yearRange[0] && s.launch_year <= yearRange[1]).length} rails active
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// ─── SCHEME METADATA CARD ─────────────────────────────────────────────────────
+function SchemeMetaCard({ scheme }) {
+  const cfg = MATURITY_META[scheme.maturity];
+  return (
+    <div className="rounded-xl border overflow-hidden" style={{ borderColor:`${cfg.color}40`, background:C.surface }}>
+      <div className="p-3.5 border-b" style={{ borderColor:`${cfg.color}20`, background:`${cfg.color}08` }}>
+        <div className="flex items-start justify-between">
+          <div>
+            <div className="text-xs font-mono text-slate-500 mb-0.5">{scheme.code} · LIVE RAIL</div>
+            <div className="text-base font-bold text-white">{scheme.name}</div>
+            <div className="text-sm font-mono mt-0.5" style={{ color: cfg.color }}>{scheme.scheme}</div>
+          </div>
+          <Pill label={scheme.maturity.toUpperCase()} color={cfg.color}/>
+        </div>
+      </div>
+      <div className="p-3.5 space-y-3">
+        {/* Core metrics */}
+        <div className="grid grid-cols-3 gap-2 text-xs">
+          {[
+            ["Launched", scheme.launch_year],
+            ["Vol/day", scheme.daily_volume_m >= 1 ? `${scheme.daily_volume_m}M` : `${(scheme.daily_volume_m*1000).toFixed(0)}K`],
+            ["Tx Cap", scheme.tx_limit_usd ? `$${(scheme.tx_limit_usd/1000).toFixed(0)}K` : "No cap"],
+          ].map(([k, v]) => (
+            <div key={k} className="bg-slate-900/60 rounded p-2 border border-slate-800 text-center">
+              <div className="text-slate-500">{k}</div>
+              <div className="text-white font-mono font-bold">{v}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Flow types */}
+        <div className="flex flex-wrap gap-1.5">
+          <Tag label="P2P" active={scheme.p2p} color={cfg.color}/>
+          <Tag label="P2B" active={scheme.p2b} color={cfg.color}/>
+          <Tag label="ISO 20022" active={scheme.iso20022} color={C.amber}/>
+          <Tag label={scheme.gdp_impact + " GDP Impact"} active={scheme.gdp_impact === "High"} color={C.emerald}/>
+        </div>
+
+        <Divider label="TECH STACK"/>
+
+        {/* API standard */}
+        <div className="space-y-1.5 text-xs">
+          {[
+            ["API Standard", scheme.api_standard],
+            ["Protocol", scheme.protocol],
+            ["Interop", scheme.interop],
+            ["Authority", scheme.authority],
+          ].map(([k, v]) => (
+            <div key={k} className="flex justify-between bg-slate-900/40 rounded px-2.5 py-1.5 border border-slate-800">
+              <span className="text-slate-500">{k}</span>
+              <span className="text-slate-200 font-mono text-right max-w-[55%] truncate">{v}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── ADOPTION BENCHMARK PANEL ─────────────────────────────────────────────────
+function AdoptionPanel({ filtered }) {
+  const [metric, setMetric] = useState("daily_volume_m");
+  const metrics = [
+    { id:"daily_volume_m", label:"Volume (txns/day)" },
+    { id:"tx_limit_usd",   label:"Transaction Cap (USD)" },
+    { id:"launch_year",    label:"Launch Year" },
+  ];
+  const byMaturity = {
+    Leader:      filtered.filter(s => s.maturity === "Leader"),
+    Established: filtered.filter(s => s.maturity === "Established"),
+    Developing:  filtered.filter(s => s.maturity === "Developing"),
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex gap-1.5 flex-wrap">
+        {metrics.map(m => (
+          <button key={m.id} onClick={() => setMetric(m.id)}
+            className="text-xs px-2.5 py-1 rounded transition-all font-mono"
+            style={{
+              background: metric === m.id ? `${C.cyan}20` : "#0B1117",
+              color: metric === m.id ? C.cyan : C.slate6,
+              border: `1px solid ${metric === m.id ? `${C.cyan}50` : C.border}`,
+            }}>{m.label}</button>
+        ))}
+      </div>
+
+      {/* Maturity breakdown */}
+      <div className="grid grid-cols-3 gap-2 text-xs">
+        {Object.entries(byMaturity).map(([mat, arr]) => {
+          const cfg = MATURITY_META[mat];
+          return (
+            <div key={mat} className="rounded-lg border p-2.5 text-center" style={{ borderColor:`${cfg.color}30`, background:`${cfg.color}08` }}>
+              <div className="text-xl font-bold font-mono" style={{ color:cfg.color }}>{arr.length}</div>
+              <div className="text-slate-500 mt-0.5">{mat}</div>
+              <div className="text-slate-600 text-xs mt-1">{arr.length > 0 ? `${Math.round((arr.length/filtered.length)*100)}%` : "—"}</div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* ISO 20022 adoption bar */}
+      <div className="bg-slate-900/50 border border-slate-800 rounded-lg p-3">
+        <div className="flex justify-between text-xs mb-2">
+          <span className="text-slate-500">ISO 20022 Adoption</span>
+          <span className="font-mono" style={{ color:C.amber }}>
+            {filtered.filter(s=>s.iso20022).length}/{filtered.length} rails
+          </span>
+        </div>
+        <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
+          <div className="h-full rounded-full transition-all duration-500"
+            style={{ width:`${filtered.length ? (filtered.filter(s=>s.iso20022).length/filtered.length)*100 : 0}%`, background:`linear-gradient(90deg,${C.amber},${C.cyan})` }}/>
+        </div>
+      </div>
+
+      <BenchmarkChart schemes={filtered} metric={metric} label={`Top 10 by ${metrics.find(m=>m.id===metric)?.label}`}/>
+
+      {/* Interop landscape */}
+      <div>
+        <Divider label="INTEROPERABILITY"/>
+        <div className="space-y-1.5 mt-2">
+          {filtered.filter(s => s.interop !== "None public").slice(0, 6).map(s => {
+            const cfg = MATURITY_META[s.maturity];
+            return (
+              <div key={s.code} className="flex justify-between items-center text-xs bg-slate-900/40 rounded px-2.5 py-1.5 border border-slate-800">
+                <div className="flex items-center gap-2">
+                  <div className="w-1.5 h-1.5 rounded-full" style={{ background:cfg.color }}/>
+                  <span style={{ color:cfg.color }}>{s.code}</span>
+                  <span className="text-slate-500">{s.scheme}</span>
+                </div>
+                <span className="text-slate-400 font-mono">{s.interop}</span>
+              </div>
+            );
+          })}
+          {filtered.filter(s => s.interop !== "None public").length === 0 && (
+            <div className="text-xs text-slate-600 text-center py-2">No interop links in current filter</div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── MAIN APP ─────────────────────────────────────────────────────────────────
+export default function RealRailsPhase2() {
+  const [view, setView] = useState("map");                      // "map" | "graph"
+  const [sideTab, setSideTab] = useState("adoption");           // "adoption" | "timeline" | "meta" | "intel"
+  const [maturityFilter, setMaturityFilter] = useState("All");
+  const [yearRange, setYearRange] = useState([2004, 2023]);
+  const [selected, setSelected] = useState(null);
+  const [searchQ, setSearchQ] = useState("");
+  const dashOffset = useAnimOffset(1);
+
+  // Filtered schemes
+  const filtered = SCHEMES.filter(s => {
+    if (maturityFilter !== "All" && s.maturity !== maturityFilter) return false;
+    if (s.launch_year < yearRange[0] || s.launch_year > yearRange[1]) return false;
+    if (searchQ && !s.name.toLowerCase().includes(searchQ.toLowerCase()) &&
+        !s.scheme.toLowerCase().includes(searchQ.toLowerCase()) &&
+        !s.code.toLowerCase().includes(searchQ.toLowerCase())) return false;
+    return true;
+  });
+
+  const stats = {
+    total: filtered.length,
+    leaders: filtered.filter(s => s.maturity === "Leader").length,
+    iso20022: filtered.filter(s => s.iso20022).length,
+    volume: filtered.reduce((a, s) => a + s.daily_volume_m, 0),
+  };
+
+  // When user clicks a country, auto-switch to meta tab
+  const handleSelect = (s) => {
+    setSelected(s);
+    if (s) setSideTab("meta");
+  };
+
+  const handleDownload = () => {
+    const blob = new Blob([JSON.stringify({ schemes: filtered, yearRange, maturityFilter }, null, 2)], { type:"application/json" });
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
+    a.download = `real-rails-export-${maturityFilter}-${yearRange[0]}-${yearRange[1]}.json`; a.click();
+  };
+
+  // Graph nodes/edges data (inline, simplified for unified view)
+  const GNODES = [
+    {id:"user",label:"User/Business",x:0.08,y:0.5,color:C.slate5,r:18},
+    {id:"fintech",label:"FinTech App",x:0.2,y:0.3,color:C.amber,r:16},
+    {id:"ob",label:"Open Banking",x:0.2,y:0.65,color:C.violet,r:16},
+    {id:"send_bank",label:"Sending Bank",x:0.35,y:0.5,color:C.cyan,r:22},
+    {id:"rtp_hub",label:"RTP Switch",x:0.55,y:0.35,color:C.cyan,r:26},
+    {id:"card_net",label:"Card Network",x:0.55,y:0.65,color:C.indigo,r:22},
+    {id:"swift",label:"SWIFT / CBDC",x:0.72,y:0.25,color:C.rose,r:20},
+    {id:"recv_bank",label:"Receiving Bank",x:0.78,y:0.55,color:C.emerald,r:22},
+    {id:"beneficiary",label:"Beneficiary",x:0.92,y:0.5,color:C.slate5,r:18},
+    {id:"scf",label:"SCF / ERP",x:0.35,y:0.78,color:C.amber,r:16},
+  ];
+  const GEDGES = [
+    {from:"user",to:"fintech",label:"Initiate",color:C.violet,dash:true},
+    {from:"user",to:"ob",label:"Consent",color:C.violet,dash:true},
+    {from:"fintech",to:"send_bank",label:"Payment req",color:C.cyan},
+    {from:"ob",to:"send_bank",label:"API data",color:C.violet,dash:true},
+    {from:"send_bank",to:"rtp_hub",label:"Route",color:C.cyan},
+    {from:"send_bank",to:"card_net",label:"Card txn",color:C.indigo},
+    {from:"send_bank",to:"swift",label:"MT103",color:C.rose},
+    {from:"scf",to:"send_bank",label:"Pay instr",color:C.amber},
+    {from:"rtp_hub",to:"recv_bank",label:"Instant credit",color:C.cyan},
+    {from:"card_net",to:"recv_bank",label:"Settlement",color:C.indigo},
+    {from:"swift",to:"recv_bank",label:"Net settle",color:C.rose},
+    {from:"recv_bank",to:"beneficiary",label:"Credit",color:C.emerald},
+    {from:"user",to:"scf",label:"Invoice",color:C.amber,dash:true},
+  ];
+
+  const gW = 680, gH = 380;
+  function bezier(n1, n2) {
+    const x1 = n1.x*gW, y1 = n1.y*gH, x2 = n2.x*gW, y2 = n2.y*gH;
+    const mx=(x1+x2)/2, my=(y1+y2)/2, dx=x2-x1, dy=y2-y1, len=Math.sqrt(dx*dx+dy*dy)||1;
+    const nx=-dy/len*25, ny=dx/len*25;
+    return `M${x1} ${y1} Q${mx+nx} ${my+ny} ${x2} ${y2}`;
+  }
+
+  return (
+    <div style={{ background:C.bg, fontFamily:"'IBM Plex Mono','JetBrains Mono','Fira Code',monospace", minHeight:"100vh" }}
+      className="text-white flex flex-col overflow-hidden">
+
+      {/* ── HEADER ── */}
+      <div style={{ borderBottom:`1px solid ${C.border}` }} className="px-4 py-2.5 flex items-center gap-3 flex-shrink-0">
+        <div style={{ color:C.cyan, border:`1px solid ${C.cyan}40`, background:`${C.cyan}08` }}
+          className="rounded px-2 py-0.5 text-xs tracking-widest font-bold">REAL RAILS</div>
+        <span className="text-slate-300 text-sm">Global Payments Intelligence</span>
+        <span className="text-slate-700 text-xs hidden md:block">Phase 2 · Benchmarking + Timeline + Metadata</span>
+
+        {/* View toggle */}
+        <div className="ml-auto flex items-center gap-1 bg-slate-900 border border-slate-800 rounded-lg p-1">
+          {[["map","🗺 Map"],["graph","⬡ Flow"]].map(([v,l]) => (
+            <button key={v} onClick={() => setView(v)}
+              className="text-xs px-3 py-1 rounded transition-all"
+              style={{
+                background: view === v ? `${C.cyan}20` : "transparent",
+                color: view === v ? C.cyan : C.slate6,
+                border: view === v ? `1px solid ${C.cyan}40` : "1px solid transparent",
+              }}>{l}</button>
+          ))}
+        </div>
+
+        {/* Live indicator */}
+        <div className="flex items-center gap-1.5 text-xs text-slate-500 ml-2">
+          <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" style={{ boxShadow:`0 0 6px ${C.emerald}` }}/>
+          LIVE
+        </div>
+      </div>
+
+      {/* ── GLOBAL STAT BAR ── */}
+      <div style={{ borderBottom:`1px solid ${C.border}`, background:"#060D16" }}
+        className="px-4 py-1.5 flex items-center gap-6 text-xs flex-shrink-0">
+        {[
+          [stats.total, "Rails in view", C.cyan],
+          [stats.leaders, "Leaders", C.cyan],
+          [stats.iso20022, "ISO 20022", C.amber],
+          [`${stats.volume >= 1 ? stats.volume.toFixed(0) : (stats.volume*1000).toFixed(0)}${stats.volume>=1?"M":"K"}`, "txns/day", C.emerald],
+          [`${yearRange[0]}–${yearRange[1]}`, "Time window", C.indigo],
+        ].map(([v,l,c],i) => (
+          <div key={i} className="flex items-center gap-2">
+            <span className="font-bold font-mono" style={{ color:c }}>{v}</span>
+            <span className="text-slate-600">{l}</span>
+            {i < 4 && <div className="w-px h-3 bg-slate-800"/>}
+          </div>
+        ))}
+        {/* Search */}
+        <div className="ml-auto flex items-center gap-2 bg-slate-900 border border-slate-800 rounded px-2.5 py-1">
+          <span className="text-slate-600">⌕</span>
+          <input value={searchQ} onChange={e => setSearchQ(e.target.value)}
+            placeholder="Search scheme, country…"
+            className="bg-transparent text-xs text-slate-300 outline-none w-36 placeholder-slate-700 font-mono"/>
+          {searchQ && <button onClick={() => setSearchQ("")} className="text-slate-600 hover:text-slate-400">×</button>}
+        </div>
+      </div>
+
+      {/* ── MAIN LAYOUT 70/30 ── */}
+      <div className="flex flex-1 min-h-0">
+
+        {/* ── LEFT: MAIN STAGE (70%) ── */}
+        <div className="flex flex-col" style={{ width:"70%", borderRight:`1px solid ${C.border}` }}>
+
+          {/* Maturity filter */}
+          <div className="flex items-center gap-2 px-3 py-1.5 border-b flex-shrink-0" style={{ borderColor:C.border }}>
+            <span className="text-xs text-slate-600">MATURITY:</span>
+            {["All","Leader","Established","Developing"].map(f => {
+              const color = f === "All" ? C.cyan : MATURITY_META[f]?.color;
+              return (
+                <button key={f} onClick={() => setMaturityFilter(f)}
+                  className="text-xs px-2.5 py-1 rounded transition-all"
+                  style={{
+                    background: maturityFilter === f ? `${color}20` : "#0B1117",
+                    color: maturityFilter === f ? color : C.slate6,
+                    border: `1px solid ${maturityFilter === f ? `${color}60` : C.border}`,
+                    boxShadow: maturityFilter === f ? `0 0 8px ${color}25` : "none",
+                  }}>
+                  {f === "All" ? `All (${SCHEMES.length})` : `${f} (${SCHEMES.filter(s=>s.maturity===f).length})`}
+                </button>
+              );
+            })}
+            <div className="ml-auto text-xs text-slate-600 font-mono">
+              {filtered.length} / {SCHEMES.length} visible
+            </div>
+          </div>
+
+          {/* Visualization */}
+          <div className="flex-1 relative overflow-hidden">
+            {view === "map" ? (
+              <MapView schemes={SCHEMES} selected={selected} onSelect={handleSelect} yearRange={yearRange}/>
+            ) : (
+              /* FLOW GRAPH */
+              <svg viewBox={`0 0 ${gW} ${gH}`} className="w-full h-full" style={{ background:"#040C18" }}>
+                <defs>
+                  <pattern id="ggrid" width="30" height="30" patternUnits="userSpaceOnUse">
+                    <path d="M 30 0 L 0 0 0 30" fill="none" stroke="#0A1628" strokeWidth="0.5"/>
+                  </pattern>
+                  {["cyan","indigo","rose","amber","violet","emerald"].map(k => (
+                    <marker key={k} id={`garr-${k}`} viewBox="0 0 8 8" refX="7" refY="4" markerWidth="4" markerHeight="4" orient="auto-start-reverse">
+                      <path d="M 0 0 L 8 4 L 0 8 z" fill={C[k]} opacity="0.8"/>
+                    </marker>
+                  ))}
+                </defs>
+                <rect width={gW} height={gH} fill="url(#ggrid)"/>
+                {GEDGES.map((e, i) => {
+                  const n1 = GNODES.find(n=>n.id===e.from), n2 = GNODES.find(n=>n.id===e.to);
+                  if (!n1||!n2) return null;
+                  const colorKey = Object.entries(C).find(([,v])=>v===e.color)?.[0] || "cyan";
+                  return (
+                    <g key={i}>
+                      <path d={bezier(n1,n2)} fill="none" stroke={e.color} strokeWidth="1.2" opacity="0.5"
+                        strokeDasharray={e.dash ? "5 4" : "none"}
+                        strokeDashoffset={e.dash ? dashOffset : 0}
+                        markerEnd={`url(#garr-${colorKey})`}/>
+                      <path d={bezier(n1,n2)} fill="none" stroke={e.color} strokeWidth="3" opacity="0.06"/>
+                    </g>
+                  );
+                })}
+                {GNODES.map(n => {
+                  const x = n.x*gW, y = n.y*gH;
+                  return (
+                    <g key={n.id} transform={`translate(${x},${y})`}>
+                      <circle r={n.r+8} fill={n.color} opacity="0.06"/>
+                      <circle r={n.r} fill={`${n.color}18`} stroke={`${n.color}70`} strokeWidth="1.2"/>
+                      <text y="4" textAnchor="middle" fontSize="8" fill={n.color} fontFamily="monospace" fontWeight="bold">{n.label.split(" ")[0]}</text>
+                      {n.label.includes(" ") && <text y="13" textAnchor="middle" fontSize="7" fill={`${n.color}80`} fontFamily="monospace">{n.label.split(" ").slice(1).join(" ")}</text>}
+                    </g>
+                  );
+                })}
+                {/* Legend */}
+                {[["Payment",C.cyan],["Data",C.violet],["Card",C.indigo],["X-border",C.rose],["Supply",C.amber]].map(([l,c],i) => (
+                  <g key={l} transform={`translate(${10 + i*100},${gH-16})`}>
+                    <line x1="0" y1="0" x2="14" y2="0" stroke={c} strokeWidth="1.5"/>
+                    <text x="18" y="4" fontSize="7.5" fill={`${c}AA`} fontFamily="monospace">{l}</text>
+                  </g>
+                ))}
+              </svg>
+            )}
+
+            {/* Map legend */}
+            {view === "map" && (
+              <div className="absolute bottom-3 left-3 flex gap-2 flex-wrap">
+                {Object.entries(MATURITY_META).map(([k,v]) => (
+                  <div key={k} className="flex items-center gap-1.5 text-xs bg-slate-900/80 px-2 py-1 rounded border border-slate-800">
+                    <div className="w-2 h-2 rounded-full" style={{ background:v.color }}/>
+                    <span style={{ color:v.color }}>{k}</span>
+                  </div>
+                ))}
+                <div className="flex items-center gap-1.5 text-xs bg-slate-900/80 px-2 py-1 rounded border border-slate-800 text-slate-500">
+                  Dimmed = outside time window
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* ── TIMELINE SLIDER ── */}
+          <div style={{ borderTop:`1px solid ${C.border}`, background:"#060E1B" }} className="px-4 pt-2.5 pb-3 flex-shrink-0">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs text-slate-600 tracking-widest">LAUNCH TIMELINE · Drag handles to filter</span>
+              <button onClick={() => setYearRange([2004, 2023])}
+                className="text-xs text-slate-600 hover:text-slate-400 transition-colors">Reset</button>
+            </div>
+            <TimeSlider yearRange={yearRange} onChange={setYearRange}/>
+          </div>
+        </div>
+
+        {/* ── RIGHT: INTELLIGENCE SIDEBAR (30%) ── */}
+        <div className="flex flex-col" style={{ width:"30%", background:"#08111A" }}>
+
+          {/* Tabs */}
+          <div style={{ borderBottom:`1px solid ${C.border}` }} className="flex text-xs flex-shrink-0">
+            {[["adoption","ADOPTION"],["meta","METADATA"],["intel","INSIGHTS"]].map(([id,label]) => (
+              <button key={id} onClick={() => setSideTab(id)}
+                className="flex-1 py-2.5 transition-all"
+                style={{
+                  color: sideTab === id ? C.cyan : C.slate6,
+                  borderBottom: sideTab === id ? `2px solid ${C.cyan}` : "2px solid transparent",
+                  background: sideTab === id ? `${C.cyan}08` : "transparent",
+                }}>{label}</button>
+            ))}
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+
+            {/* ── ADOPTION FILTERS TAB ── */}
+            {sideTab === "adoption" && (
+              <>
+                <div className="text-xs text-slate-600 tracking-widest">MATURITY BENCHMARKING</div>
+                <AdoptionPanel filtered={filtered}/>
+              </>
+            )}
+
+            {/* ── METADATA DRILL-DOWN TAB ── */}
+            {sideTab === "meta" && (
+              <div className="space-y-3">
+                <div className="text-xs text-slate-600 tracking-widest">SCHEME METADATA DRILL-DOWN</div>
+                {selected ? (
+                  <SchemeMetaCard scheme={selected}/>
+                ) : (
+                  <>
+                    <p className="text-xs text-slate-500 leading-relaxed">
+                      Click any country on the map to inspect its full technical profile — API standard, protocol, interoperability, and governance.
+                    </p>
+                    <div className="text-xs text-slate-600 mb-1 tracking-widest mt-3">ISO 20022 ADOPTERS</div>
+                    <div className="space-y-2 max-h-80 overflow-y-auto">
+                      {SCHEMES.filter(s => s.iso20022).map(s => {
+                        const cfg = MATURITY_META[s.maturity];
+                        return (
+                          <button key={s.code} onClick={() => handleSelect(s)}
+                            className="w-full text-left rounded-lg border px-3 py-2 transition-all text-xs"
+                            style={{ borderColor:`${cfg.color}30`, background:`${cfg.color}06` }}>
+                            <div className="flex justify-between items-center">
+                              <span style={{ color:cfg.color }} className="font-bold">{s.code}</span>
+                              <span className="text-slate-500 font-mono text-xs">{s.protocol}</span>
+                            </div>
+                            <div className="text-slate-400 mt-0.5">{s.scheme}</div>
+                            <div className="text-slate-600 mt-0.5 truncate">{s.api_standard}</div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
+                {selected && (
+                  <button onClick={() => setSelected(null)}
+                    className="w-full text-xs py-1.5 text-slate-600 hover:text-slate-400 transition-colors">
+                    ← Back to all schemes
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* ── INSIGHTS TAB ── */}
+            {sideTab === "intel" && (
+              <div className="space-y-4">
+                {/* Section B */}
+                <div className="border border-sky-900/40 rounded-xl p-3.5" style={{ background:`${C.cyan}08` }}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="w-1.5 h-1.5 rounded-full" style={{ background:C.cyan, boxShadow:`0 0 6px ${C.cyan}` }}/>
+                    <span className="text-xs font-bold tracking-widest" style={{ color:C.cyan }}>WHY THIS MATTERS</span>
+                  </div>
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    Real-time rails are the fastest-spreading financial infrastructure in history. From Mexico's SPEI in 2004 to UAE's IPP in 2023, <span style={{ color:C.cyan }}>27 countries</span> now operate live instant payment schemes covering 60%+ of global GDP.
+                  </p>
+                </div>
+
+                {/* Section C */}
+                <div className="border border-indigo-900/40 rounded-xl p-3.5" style={{ background:`${C.indigo}08` }}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="w-1.5 h-1.5 rounded-full" style={{ background:C.indigo }}/>
+                    <span className="text-xs font-bold tracking-widest" style={{ color:C.indigo }}>WHO CONTROLS THE RAIL</span>
+                  </div>
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    Central banks own settlement. Commercial banks hold access keys. FinTechs participate as <span style={{ color:C.indigo }}>licensed third parties</span> — never owning a direct rail seat.
+                  </p>
+                </div>
+
+                {/* Phase 2 intelligence */}
+                <div className="border border-amber-900/30 rounded-xl p-3.5" style={{ background:`${C.amber}08` }}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="w-1.5 h-1.5 rounded-full" style={{ background:C.amber }}/>
+                    <span className="text-xs font-bold tracking-widest" style={{ color:C.amber }}>ISO 20022 AS MOAT</span>
+                  </div>
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    Countries that adopted ISO 20022 early can plug into SWIFT's cross-border network, enabling true rail-to-rail interoperability. This is the next competitive frontier — not domestic speed, but <span style={{ color:C.amber }}>global reach</span>.
+                  </p>
+                  <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                    {[
+                      ["NEXUS (BIS)", "UPI ↔ PayNow", C.cyan],
+                      ["TIPS (ECB)", "SEPA interop", C.indigo],
+                      ["SWIFT GPI", "Cross-border", C.rose],
+                      ["RTP + FedNow", "US dual-rail", C.emerald],
+                    ].map(([k,v,c]) => (
+                      <div key={k} className="bg-slate-900/60 rounded p-2 border border-slate-800">
+                        <div style={{ color:c }} className="font-bold">{k}</div>
+                        <div className="text-slate-500">{v}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Download */}
+            <button onClick={handleDownload}
+              className="w-full text-xs py-2.5 rounded-lg border transition-all"
+              style={{ color:C.cyan, borderColor:`${C.cyan}40`, background:`${C.cyan}08` }}
+              onMouseEnter={e=>e.currentTarget.style.boxShadow=`0 0 12px ${C.cyan}30`}
+              onMouseLeave={e=>e.currentTarget.style.boxShadow="none"}>
+              ↓ Export Filtered Data (JSON)
+            </button>
+
+            <div className="text-xs text-slate-700 text-center leading-relaxed pb-2">
+              Sources: FedNow · EPC · World Bank · BIS<br/>
+              Real Rails Intelligence · PoC #05 · Phase 2
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
