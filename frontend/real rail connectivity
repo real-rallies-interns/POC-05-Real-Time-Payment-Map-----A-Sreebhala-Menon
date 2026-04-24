@@ -538,8 +538,8 @@ export default function RealRailsConnectivity() {
         <div className="flex items-center gap-3">
           <div style={{ color:C.cyan, border:`1px solid ${C.cyan}40`, background:`${C.cyan}08` }}
             className="rounded px-2 py-0.5 text-xs tracking-widest font-bold">REAL RAILS</div>
-          <span className="text-slate-300 text-sm tracking-wide">Relational Connectivity View</span>
-          <span className="text-slate-700 text-xs hidden sm:block">PoC #05 · Flow Intelligence</span>
+          <span className="text-slate-300 text-sm tracking-wide">Real-Time Payments Map</span>
+          <span className="text-slate-700 text-xs hidden sm:block">PoC #05 · Global Infrastructure Intelligence</span>
         </div>
         <div className="flex items-center gap-4">
           {/* Edge type legend */}
