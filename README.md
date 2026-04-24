@@ -21,7 +21,7 @@ A production-grade intelligence dashboard that visualizes how money and data flo
 | Phase 1 — World Map | ✅ Complete |
 | Phase 2 — Connectivity Graph | ✅ Complete |
 | VAR (Visualization Audit) | ✅ Final — 22 PASS · 0 PARTIAL · 1 NOTE · 0 FAIL |
-| UAT Checklist | ⏳ 30 test cases — pending tester sign-off |
+| UAT Checklist | UAT Checklist ✅ Completed — 30 PASS · 0 FAIL · Tester Sign-off Done |
 | Backend API | ✅ Live — 5 endpoints, 27 schemes |
 
 ---
