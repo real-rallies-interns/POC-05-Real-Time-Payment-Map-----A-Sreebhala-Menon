@@ -10,6 +10,8 @@ A production-grade intelligence dashboard that visualizes how money and data flo
 ---
 ## Preview
 <img width="1912" height="918" alt="image" src="https://github.com/user-attachments/assets/e41e0420-72ef-4e9a-b91b-1ec5aa5f7f16" />
+<img width="1886" height="921" alt="image" src="https://github.com/user-attachments/assets/2548eb90-63ad-466f-ae55-b6496dbfa5b0" />
+
 
 ---
 ## Project Status
