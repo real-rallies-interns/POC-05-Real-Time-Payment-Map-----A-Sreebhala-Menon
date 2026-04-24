@@ -8,7 +8,10 @@
 A production-grade intelligence dashboard that visualizes how money and data flow across the world's real-time payment infrastructure — 27 national schemes, 28 graph nodes, 44 directed edges, 6 system clusters, and 6 traceable transaction paths including the BIS NEXUS cross-border corridor.
 
 ---
+## Preview
+<img width="1912" height="918" alt="image" src="https://github.com/user-attachments/assets/e41e0420-72ef-4e9a-b91b-1ec5aa5f7f16" />
 
+---
 ## Project Status
 
 | Item | Status |
@@ -44,17 +47,18 @@ A production-grade intelligence dashboard that visualizes how money and data flo
 
 ```
 poc-05-real-time-payments-map/
+│
 ├── backend/
-│   ├── main.py                              # FastAPI — 5 endpoints, 27 schemes
+│   ├── main.py
 │   ├── requirements.txt
 │   └── README.md
+│
 ├── frontend/
-│   ├── real-rails-payments-map.jsx          # Phase 1 — World Map
-│   ├── real-rails-connectivity-final.jsx    # Phase 2 — Connectivity Graph (all fixes applied)
-│   └── real-rails-phase2.jsx               # Phase 2 — Unified Dashboard
+│   └── real-rails-connectivity-final.jsx
+│
 └── docs/
-    ├── RealRails_PoC05_Final_VAR_UAT.xlsx  # VAR + UAT Checklist
-    └── Case_Study_PoC_05.docx
+    ├── RealRails_PoC05_VAR_Final.docx
+    └── RealRails_PoC05_UAT_Document.xlsx
 ```
 
 ---
