@@ -1,6 +1,6 @@
-# POC-05-Real-Time-Payment-Map-----A-Sreebhala-Menon
+# Real-Time-Payment-Map-----A-Sreebhala-Menon
 # Real Rails — Real-Time Payments Map
-### PoC #05 · Payments / Intelligence System · VAR Approved · All Fixes Applied
+###  Payments / Intelligence System · VAR Approved · All Fixes Applied
 
 > **"You aren't just building a map. You are building a Global Competitiveness Index."**
 > — Real Rails Master Manifesto
