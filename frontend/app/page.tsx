@@ -1,0 +1,838 @@
+"use client";
+import { useState, useEffect, useRef, useCallback } from "react";
+
+// ─── DESIGN TOKENS ────────────────────────────────────────────────────────────
+const C = {
+  bg: "#030712", surface: "#0B1117", border: "#1F2937",
+  cyan: "#38BDF8", indigo: "#818CF8", emerald: "#34D399",
+  amber: "#F59E0B", rose: "#FB7185", violet: "#A78BFA",
+  slate5: "#64748B", slate6: "#475569", slate7: "#334155",
+};
+
+// ─── GRAPH DATA ───────────────────────────────────────────────────────────────
+// Clusters: "user" | "openbanking" | "rtp" | "card" | "supplychain" | "correspondent"
+const NODES = [
+  // Initiators
+  { id:"consumer",    label:"Consumer",       sub:"End User",            cluster:"user",          shape:"hex",  size:28, color:C.slate5 },
+  { id:"business",    label:"Business",       sub:"Merchant / Corp",     cluster:"user",          shape:"hex",  size:28, color:C.slate5 },
+  { id:"fintech",     label:"FinTech App",    sub:"Licensed Participant", cluster:"user",          shape:"hex",  size:26, color:C.amber },
+
+  // Open Banking Layer
+  { id:"tpp",         label:"TPP / AISP",     sub:"Open Banking API",    cluster:"openbanking",   shape:"rect", size:26, color:C.violet },
+  { id:"ob_gateway",  label:"OB Gateway",     sub:"PSD2 / CDR",          cluster:"openbanking",   shape:"rect", size:24, color:C.violet },
+  { id:"bank_api",    label:"Bank Open API",  sub:"ISO 20022 Interface",  cluster:"openbanking",   shape:"rect", size:24, color:C.violet },
+
+  // Sending Bank Side
+  { id:"send_bank",   label:"Sending Bank",   sub:"Issuing Institution",  cluster:"rtp",           shape:"circle", size:32, color:C.cyan },
+  { id:"send_cb",     label:"Central Bank A", sub:"Monetary Authority",   cluster:"rtp",           shape:"diamond", size:30, color:C.cyan },
+
+  // RTP Rail / Switch
+  { id:"rtp_upi",     label:"UPI",            sub:"India · NPCI · 400M/d",cluster:"rtp",           shape:"circle", size:36, color:C.cyan },
+  { id:"rtp_pix",     label:"Pix",            sub:"Brazil · BCB · 60M/d", cluster:"rtp",           shape:"circle", size:34, color:C.cyan },
+  { id:"rtp_fednow",  label:"FedNow",         sub:"USA · Fed Reserve",    cluster:"rtp",           shape:"circle", size:30, color:C.cyan },
+  { id:"rtp_sepa",    label:"SEPA Instant",   sub:"EU · EPC · ISO20022",  cluster:"rtp",           shape:"circle", size:32, color:C.cyan },
+  { id:"rtp_fps",     label:"Faster Payments",sub:"UK · Pay.UK",          cluster:"rtp",           shape:"circle", size:30, color:C.cyan },
+  { id:"rtp_paynow",  label:"PayNow",         sub:"Singapore · MAS",      cluster:"rtp",           shape:"circle", size:28, color:C.cyan },
+
+  // Card Networks
+  { id:"visa",        label:"Visa",           sub:"Card Network",         cluster:"card",          shape:"rect", size:28, color:C.indigo },
+  { id:"mastercard",  label:"Mastercard",     sub:"Card Network",         cluster:"card",          shape:"rect", size:28, color:C.indigo },
+  { id:"scheme_sw",   label:"Card Switch",    sub:"Authorization Engine", cluster:"card",          shape:"rect", size:26, color:C.indigo },
+  { id:"issuer",      label:"Issuing Bank",   sub:"Cardholder's Bank",    cluster:"card",          shape:"rect", size:26, color:C.indigo },
+  { id:"acquirer",    label:"Acquiring Bank", sub:"Merchant's Bank",      cluster:"card",          shape:"rect", size:26, color:C.indigo },
+
+  // Correspondent / Cross-border
+  { id:"swift",       label:"SWIFT",          sub:"Global Messaging",     cluster:"correspondent", shape:"diamond", size:32, color:C.rose },
+  { id:"nostro",      label:"Nostro Bank",    sub:"Correspondent Bank",   cluster:"correspondent", shape:"diamond", size:28, color:C.rose },
+  { id:"fx",          label:"FX Settlement",  sub:"Currency Conversion",  cluster:"correspondent", shape:"diamond", size:26, color:C.rose },
+  { id:"recv_cb",     label:"Central Bank B", sub:"Receiving Authority",  cluster:"correspondent", shape:"diamond", size:28, color:C.rose },
+  { id:"recv_bank",   label:"Receiving Bank", sub:"Beneficiary Bank",     cluster:"rtp",           shape:"circle", size:28, color:C.emerald },
+
+  // Supply Chain
+  { id:"erp",         label:"ERP System",     sub:"SAP / Oracle",         cluster:"supplychain",   shape:"rect", size:26, color:C.amber },
+  { id:"scf",         label:"SCF Platform",   sub:"Supply Chain Finance", cluster:"supplychain",   shape:"rect", size:26, color:C.amber },
+  { id:"supplier",    label:"Supplier",       sub:"Invoice Originator",   cluster:"supplychain",   shape:"hex",  size:26, color:C.amber },
+  { id:"buyer",       label:"Buyer Corp",     sub:"Anchor Enterprise",    cluster:"supplychain",   shape:"hex",  size:28, color:C.amber },
+];
+
+// Edges: { from, to, label, type:"payment"|"data"|"auth"|"settlement", hop }
+const EDGES = [
+  // Open Banking flow
+  { from:"consumer",   to:"tpp",        label:"Consent",       type:"data",        hop:1 },
+  { from:"tpp",        to:"ob_gateway", label:"API Request",   type:"data",        hop:2 },
+  { from:"ob_gateway", to:"bank_api",   label:"PSD2 Call",     type:"data",        hop:3 },
+  { from:"bank_api",   to:"send_bank",  label:"Account Data",  type:"data",        hop:4 },
+
+  // Consumer → RTP domestic
+  { from:"consumer",   to:"fintech",    label:"Initiates",     type:"data",        hop:1 },
+  { from:"fintech",    to:"send_bank",  label:"Payment Req",   type:"payment",     hop:2 },
+  { from:"send_bank",  to:"send_cb",    label:"Debit",         type:"settlement",  hop:3 },
+  { from:"send_cb",    to:"rtp_upi",    label:"Route via UPI", type:"payment",     hop:4 },
+  { from:"rtp_upi",    to:"recv_bank",  label:"Credit Msg",    type:"payment",     hop:5 },
+  { from:"recv_bank",  to:"business",   label:"Confirm",       type:"data",        hop:6 },
+
+  // Pix path
+  { from:"send_bank",  to:"rtp_pix",    label:"Pix Route",     type:"payment",     hop:4 },
+  { from:"rtp_pix",    to:"recv_bank",  label:"Instant Credit",type:"payment",     hop:5 },
+
+  // FedNow
+  { from:"send_bank",  to:"rtp_fednow", label:"FedNow Msg",    type:"payment",     hop:4 },
+  { from:"rtp_fednow", to:"recv_bank",  label:"Settlement",    type:"settlement",  hop:5 },
+
+  // SEPA & FPS
+  { from:"send_bank",  to:"rtp_sepa",   label:"SEPA Instant",  type:"payment",     hop:4 },
+  { from:"rtp_sepa",   to:"recv_bank",  label:"Credit",        type:"payment",     hop:5 },
+  { from:"send_bank",  to:"rtp_fps",    label:"FPS Route",     type:"payment",     hop:4 },
+  { from:"rtp_fps",    to:"recv_bank",  label:"Credit",        type:"payment",     hop:5 },
+
+  // PayNow
+  { from:"send_bank",  to:"rtp_paynow", label:"PayNow",        type:"payment",     hop:4 },
+  { from:"rtp_paynow", to:"recv_bank",  label:"Credit",        type:"payment",     hop:5 },
+
+  // Card rail
+  { from:"business",   to:"acquirer",   label:"POS Req",       type:"payment",     hop:1 },
+  { from:"acquirer",   to:"scheme_sw",  label:"Auth Route",    type:"auth",        hop:2 },
+  { from:"scheme_sw",  to:"visa",       label:"Switch",        type:"auth",        hop:3 },
+  { from:"scheme_sw",  to:"mastercard", label:"Switch",        type:"auth",        hop:3 },
+  { from:"visa",       to:"issuer",     label:"Auth Request",  type:"auth",        hop:4 },
+  { from:"mastercard", to:"issuer",     label:"Auth Request",  type:"auth",        hop:4 },
+  { from:"issuer",     to:"scheme_sw",  label:"Approve",       type:"auth",        hop:5 },
+  { from:"scheme_sw",  to:"acquirer",   label:"Auth OK",       type:"auth",        hop:6 },
+  { from:"acquirer",   to:"business",   label:"Cleared",       type:"settlement",  hop:7 },
+
+  // Correspondent / Cross-border
+  { from:"send_bank",  to:"swift",      label:"MT103",         type:"data",        hop:3 },
+  { from:"swift",      to:"nostro",     label:"Route",         type:"payment",     hop:4 },
+  { from:"nostro",     to:"fx",         label:"FX Convert",    type:"settlement",  hop:5 },
+  { from:"fx",         to:"recv_cb",    label:"Net Settle",    type:"settlement",  hop:6 },
+  { from:"recv_cb",    to:"recv_bank",  label:"Credit Nostro", type:"settlement",  hop:7 },
+
+  // Supply chain
+  { from:"supplier",   to:"erp",        label:"Invoice",       type:"data",        hop:1 },
+  { from:"buyer",      to:"erp",        label:"PO Match",      type:"data",        hop:1 },
+  { from:"erp",        to:"scf",        label:"Payable Data",  type:"data",        hop:2 },
+  { from:"scf",        to:"send_bank",  label:"Payment Instr", type:"payment",     hop:3 },
+  { from:"send_bank",  to:"rtp_sepa",   label:"Instant Pay",   type:"payment",     hop:4 },
+  { from:"rtp_sepa",   to:"supplier",   label:"Funds",         type:"payment",     hop:5 },
+
+  // ── CROSS-BORDER CORRIDOR EDGES ──────────────────────────────────────────
+  // Sources: BIS NEXUS, EPC, SWIFT GPI public documentation
+  { from:"rtp_upi",    to:"rtp_paynow", label:"NEXUS (pilot)", type:"corridor",    hop:1 },
+  { from:"rtp_paynow", to:"rtp_fps",    label:"PayNow↔FPS",    type:"corridor",    hop:1 },
+  { from:"rtp_sepa",   to:"rtp_fps",    label:"EPC↔Pay.UK",    type:"corridor",    hop:1 },
+  { from:"rtp_fednow", to:"rtp_sepa",   label:"SWIFT GPI",     type:"corridor",    hop:1 },
+];
+
+// Predefined transaction paths for "trace" mode
+const TX_PATHS = [
+  {
+    id:"domestic_rtp", label:"Domestic RTP (UPI)",
+    desc:"Consumer pays merchant via UPI in 1.2 seconds",
+    color: C.cyan,
+    hops:["consumer","fintech","send_bank","send_cb","rtp_upi","recv_bank","business"],
+  },
+  {
+    id:"card_payment", label:"Card Payment",
+    desc:"Merchant card acceptance through Visa/Mastercard network",
+    color: C.indigo,
+    hops:["business","acquirer","scheme_sw","visa","issuer","scheme_sw","acquirer","business"],
+  },
+  {
+    id:"crossborder",  label:"Cross-Border SWIFT",
+    desc:"International wire: 1–3 days, multiple intermediaries",
+    color: C.rose,
+    hops:["consumer","send_bank","swift","nostro","fx","recv_cb","recv_bank","business"],
+  },
+  {
+    id:"openbanking",  label:"Open Banking Data Flow",
+    desc:"TPP reads account data via PSD2/Open API",
+    color: C.violet,
+    hops:["consumer","tpp","ob_gateway","bank_api","send_bank"],
+  },
+  {
+    id:"supplychain",  label:"Supply Chain Finance",
+    desc:"Buyer-initiated early payment via SCF platform",
+    color: C.amber,
+    hops:["supplier","erp","scf","send_bank","rtp_sepa","supplier"],
+  },
+  {
+    id:"nexus_corridor", label:"NEXUS Cross-Border (UPI↔PayNow)",
+    desc:"BIS NEXUS pilot: instant cross-border India → Singapore in <60 seconds",
+    color: "#F472B6",
+    hops:["consumer","send_bank","send_cb","rtp_upi","rtp_paynow","recv_bank","business"],
+  },
+];
+
+const CLUSTER_META = {
+  user:          { label:"Initiators",       color:C.slate5,  x:0.12, y:0.45 },
+  openbanking:   { label:"Open Banking",     color:C.violet,  x:0.28, y:0.20 },
+  rtp:           { label:"RTP Rails",        color:C.cyan,    x:0.52, y:0.50 },
+  card:          { label:"Card Networks",    color:C.indigo,  x:0.52, y:0.82 },
+  correspondent: { label:"Correspondent",   color:C.rose,    x:0.78, y:0.25 },
+  supplychain:   { label:"Supply Chain",     color:C.amber,   x:0.28, y:0.78 },
+};
+
+const EDGE_TYPE_COLORS = {
+  payment:    C.cyan,
+  data:       C.violet,
+  auth:       C.indigo,
+  settlement: C.emerald,
+  corridor:   "#F472B6",   // hot-pink — cross-border interop (NEXUS, TIPS, SWIFT GPI)
+};
+
+// ─── LAYOUT: place nodes by cluster ──────────────────────────────────────────
+function buildLayout(W, H) {
+  const byCluster = {};
+  NODES.forEach(n => { (byCluster[n.cluster] ??= []).push(n); });
+  const positions = {};
+
+  Object.entries(byCluster).forEach(([clKey, nodes]) => {
+    const meta = CLUSTER_META[clKey];
+    const cx = meta.x * W, cy = meta.y * H;
+    const count = nodes.length;
+    const radius = Math.min(70, 20 + count * 12);
+    nodes.forEach((n, i) => {
+      const angle = (2 * Math.PI * i) / count - Math.PI / 2;
+      positions[n.id] = {
+        x: cx + (count === 1 ? 0 : Math.cos(angle) * radius),
+        y: cy + (count === 1 ? 0 : Math.sin(angle) * radius),
+      };
+    });
+  });
+  return positions;
+}
+
+// ─── ANIMATE DASH OFFSET ─────────────────────────────────────────────────────
+function useAnimatedOffset(speed = 1) {
+  const [offset, setOffset] = useState(0);
+  useEffect(() => {
+    let frame;
+    const tick = () => { setOffset(o => (o - speed * 0.4) % 100); frame = requestAnimationFrame(tick); };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [speed]);
+  return offset;
+}
+
+// ─── HELPER: quadratic bezier midpoint control ───────────────────────────────
+function bezierPath(x1, y1, x2, y2, bend = 30) {
+  const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+  const dx = x2 - x1, dy = y2 - y1;
+  const len = Math.sqrt(dx * dx + dy * dy) || 1;
+  const nx = -dy / len, ny = dx / len;
+  return `M ${x1} ${y1} Q ${mx + nx * bend} ${my + ny * bend} ${x2} ${y2}`;
+}
+
+// ─── NODE SHAPE ───────────────────────────────────────────────────────────────
+function NodeShape({ shape, size, color, selected, pulse }) {
+  const s = size;
+  const glowFilter = selected ? "url(#nodeGlow)" : undefined;
+  const stroke = selected ? color : `${color}60`;
+  const sw = selected ? 2 : 1;
+  const fill = `${color}18`;
+
+  if (shape === "circle") return <circle r={s} fill={fill} stroke={stroke} strokeWidth={sw} filter={glowFilter}/>;
+  if (shape === "rect")   return <rect x={-s} y={-s * 0.7} width={s * 2} height={s * 1.4} rx={4} fill={fill} stroke={stroke} strokeWidth={sw} filter={glowFilter}/>;
+  if (shape === "diamond") {
+    const pts = `0,${-s} ${s},0 0,${s} ${-s},0`;
+    return <polygon points={pts} fill={fill} stroke={stroke} strokeWidth={sw} filter={glowFilter}/>;
+  }
+  // hex
+  const pts = Array.from({length:6}, (_,i) => {
+    const a = (i * Math.PI) / 3 - Math.PI / 6;
+    return `${Math.cos(a)*s},${Math.sin(a)*s}`;
+  }).join(" ");
+  return <polygon points={pts} fill={fill} stroke={stroke} strokeWidth={sw} filter={glowFilter}/>;
+}
+
+// ─── CONNECTIVITY GRAPH ───────────────────────────────────────────────────────
+function ConnectivityGraph({ selectedNode, onSelectNode, activePath, clusterFilter, edgeTypeFilter }) {
+  const svgRef = useRef(null);
+  const [dims, setDims] = useState({ W: 800, H: 520 });
+  const dashOffset = useAnimatedOffset(1.2);
+  const [hoveredEdge, setHoveredEdge] = useState(null);
+  const [tooltip, setTooltip] = useState(null);
+
+  useEffect(() => {
+    const ob = new ResizeObserver(entries => {
+      const { width, height } = entries[0].contentRect;
+      setDims({ W: width || 800, H: height || 520 });
+    });
+    if (svgRef.current) ob.observe(svgRef.current.parentElement);
+    return () => ob.disconnect();
+  }, []);
+
+  const { W, H } = dims;
+  const pos = buildLayout(W, H);
+
+  const activePathSet = activePath ? new Set(activePath.hops) : null;
+  const activeEdgeSet = new Set();
+  if (activePath) {
+    for (let i = 0; i < activePath.hops.length - 1; i++) {
+      activeEdgeSet.add(`${activePath.hops[i]}->${activePath.hops[i+1]}`);
+      activeEdgeSet.add(`${activePath.hops[i+1]}->${activePath.hops[i]}`); // bidirectional check
+    }
+  }
+
+  const visibleNodes = NODES.filter(n =>
+    (!clusterFilter || n.cluster === clusterFilter)
+  );
+  const visibleNodeIds = new Set(visibleNodes.map(n => n.id));
+  const visibleEdges = EDGES.filter(e =>
+    visibleNodeIds.has(e.from) && visibleNodeIds.has(e.to) &&
+    (!edgeTypeFilter || e.type === edgeTypeFilter)
+  );
+
+  return (
+    <svg ref={svgRef} className="w-full h-full select-none" style={{ background: C.bg }}>
+      <defs>
+        <filter id="nodeGlow" x="-50%" y="-50%" width="200%" height="200%">
+          <feGaussianBlur stdDeviation="4" result="b"/>
+          <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+        <filter id="edgeGlow" x="-30%" y="-30%" width="160%" height="160%">
+          <feGaussianBlur stdDeviation="2" result="b"/>
+          <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+        {/* Arrow markers per edge type */}
+        {Object.entries(EDGE_TYPE_COLORS).map(([t, c]) => (
+          <marker key={t} id={`arrow-${t}`} viewBox="0 0 10 10" refX="9" refY="5"
+            markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill={c} opacity="0.8"/>
+          </marker>
+        ))}
+        <marker id="arrow-active" viewBox="0 0 10 10" refX="9" refY="5"
+          markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="white" opacity="1"/>
+        </marker>
+        {/* Grid */}
+        <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+          <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#0F1A2A" strokeWidth="0.5"/>
+        </pattern>
+      </defs>
+
+      {/* Background grid */}
+      <rect width={W} height={H} fill="url(#grid)"/>
+
+      {/* Cluster halos */}
+      {Object.entries(CLUSTER_META).map(([key, meta]) => {
+        if (clusterFilter && clusterFilter !== key) return null;
+        const cx = meta.x * W, cy = meta.y * H;
+        const clusterNodes = NODES.filter(n => n.cluster === key);
+        const r = Math.min(90, 30 + clusterNodes.length * 14);
+        return (
+          <g key={key}>
+            <circle cx={cx} cy={cy} r={r + 20} fill={`${meta.color}04`} stroke={`${meta.color}12`} strokeWidth="1" strokeDasharray="4 4"/>
+            <circle cx={cx} cy={cy} r={r + 8} fill="none" stroke={`${meta.color}08`} strokeWidth="1"/>
+            <text x={cx} y={cy - r - 26} textAnchor="middle" fontSize="9" fill={`${meta.color}80`}
+              fontFamily="monospace" letterSpacing="2">
+              {meta.label.toUpperCase()}
+            </text>
+          </g>
+        );
+      })}
+
+      {/* Edges */}
+      {visibleEdges.map((e, i) => {
+        const from = pos[e.from], to = pos[e.to];
+        if (!from || !to) return null;
+        const key = `${e.from}->${e.to}`;
+        const isActive = activePath && (activeEdgeSet.has(key));
+        const isHovered = hoveredEdge === i;
+        const c = isActive ? (activePath?.color || "white") : EDGE_TYPE_COLORS[e.type];
+        const opacity = activePath ? (isActive ? 1 : 0.06) : (isHovered ? 0.9 : 0.25);
+        const sw = isActive ? 2 : isHovered ? 1.5 : 0.8;
+        const d = bezierPath(from.x, from.y, to.x, to.y, isActive ? 40 : 20);
+
+        return (
+          <g key={i} onMouseEnter={() => { setHoveredEdge(i); setTooltip({ x:(from.x+to.x)/2, y:(from.y+to.y)/2, label:e.label, type:e.type, hop:e.hop }); }}
+            onMouseLeave={() => { setHoveredEdge(null); setTooltip(null); }}>
+            {/* Glow copy for active */}
+            {isActive && <path d={d} fill="none" stroke={c} strokeWidth={sw + 4} opacity={0.15} filter="url(#edgeGlow)"/>}
+            <path d={d} fill="none" stroke={c} strokeWidth={sw} opacity={opacity}
+              strokeDasharray={isActive ? "8 4" : "none"}
+              strokeDashoffset={isActive ? dashOffset : 0}
+              markerEnd={`url(#arrow-${isActive ? "active" : e.type})`}
+            />
+          </g>
+        );
+      })}
+
+      {/* Edge tooltip */}
+      {tooltip && (
+        <g>
+          <rect x={tooltip.x - 40} y={tooltip.y - 18} width={80} height={22} rx={4}
+            fill="#0B1117" stroke={EDGE_TYPE_COLORS[tooltip.type]} strokeWidth="0.8" opacity="0.95"/>
+          <text x={tooltip.x} y={tooltip.y - 4} textAnchor="middle" fontSize="8.5" fill="white" fontFamily="monospace">
+            {tooltip.label}
+          </text>
+          <text x={tooltip.x} y={tooltip.y + 7} textAnchor="middle" fontSize="7" fill={EDGE_TYPE_COLORS[tooltip.type]} fontFamily="monospace">
+            HOP {tooltip.hop} · {tooltip.type.toUpperCase()}
+          </text>
+        </g>
+      )}
+
+      {/* Nodes */}
+      {visibleNodes.map(n => {
+        const p = pos[n.id];
+        if (!p) return null;
+        const isSelected = selectedNode?.id === n.id;
+        const isInPath = activePathSet?.has(n.id);
+        const dimmed = activePath && !isInPath;
+        const opacity = dimmed ? 0.2 : 1;
+
+        return (
+          <g key={n.id} transform={`translate(${p.x},${p.y})`}
+            style={{ cursor: "pointer", opacity }}
+            onClick={() => onSelectNode(n.id === selectedNode?.id ? null : n)}>
+            {/* Pulse ring for path nodes */}
+            {isInPath && (
+              <circle r={n.size + 10} fill="none" stroke={activePath.color} strokeWidth="1" opacity="0.4">
+                <animate attributeName="r" values={`${n.size+8};${n.size+16};${n.size+8}`} dur="2s" repeatCount="indefinite"/>
+                <animate attributeName="opacity" values="0.5;0.1;0.5" dur="2s" repeatCount="indefinite"/>
+              </circle>
+            )}
+            <NodeShape shape={n.shape} size={n.size} color={n.color} selected={isSelected || isInPath}/>
+            {/* Label */}
+            <text y={n.size + 10} textAnchor="middle" fontSize="9" fill={isInPath ? "white" : `${n.color}CC`}
+              fontFamily="monospace" fontWeight={isSelected || isInPath ? "bold" : "normal"}>
+              {n.label}
+            </text>
+            <text y={n.size + 20} textAnchor="middle" fontSize="7.5" fill={`${n.color}60`} fontFamily="monospace">
+              {n.sub}
+            </text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+// ─── HOP TRACER ───────────────────────────────────────────────────────────────
+function HopTracer({ path }) {
+  const [step, setStep] = useState(0);
+  useEffect(() => {
+    if (!path) return;
+    setStep(0);
+    const t = setInterval(() => setStep(s => s < path.hops.length - 1 ? s + 1 : 0), 900);
+    return () => clearInterval(t);
+  }, [path?.id]);
+
+  if (!path) return null;
+  const nodeById = Object.fromEntries(NODES.map(n => [n.id, n]));
+
+  return (
+    <div className="rounded-xl border p-3" style={{ borderColor:`${path.color}40`, background:`${path.color}08` }}>
+      <div className="text-xs font-bold mb-2" style={{ color: path.color }}>{path.label}</div>
+      <div className="text-xs text-slate-400 mb-3 leading-relaxed">{path.desc}</div>
+      <div className="flex flex-wrap gap-1 items-center">
+        {path.hops.map((id, i) => {
+          const node = nodeById[id];
+          const active = i === step;
+          const passed = i < step;
+          return (
+            <div key={`${id}-${i}`} className="flex items-center gap-1">
+              <div className="text-xs px-2 py-0.5 rounded font-mono transition-all duration-300"
+                style={{
+                  background: active ? `${path.color}30` : passed ? `${path.color}10` : "#1F2937",
+                  color: active ? "white" : passed ? `${path.color}80` : "#475569",
+                  border: active ? `1px solid ${path.color}` : `1px solid #1F293700`,
+                  boxShadow: active ? `0 0 8px ${path.color}50` : "none",
+                }}>
+                {node?.label || id}
+              </div>
+              {i < path.hops.length - 1 && (
+                <span style={{ color: passed ? `${path.color}80` : "#1F2937", fontSize:"10px" }}>→</span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-2 flex items-center gap-2">
+        <div className="text-xs text-slate-600">Hop</div>
+        <div className="flex gap-1">
+          {path.hops.map((_, i) => (
+            <div key={i} className="w-1.5 h-1.5 rounded-full transition-all duration-300"
+              style={{ background: i <= step ? path.color : "#1F2937", boxShadow: i === step ? `0 0 4px ${path.color}` : "none" }}/>
+          ))}
+        </div>
+        <div className="text-xs font-mono ml-auto" style={{ color: path.color }}>
+          {step + 1}/{path.hops.length}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── STAT CARD ────────────────────────────────────────────────────────────────
+const StatCard = ({ value, label, accent }) => (
+  <div className="flex flex-col items-center bg-slate-900/60 border border-slate-800 rounded-lg p-3">
+    <span style={{ color: accent || C.cyan }} className="text-xl font-bold font-mono">{value}</span>
+    <span className="text-xs text-slate-500 mt-0.5 text-center leading-tight">{label}</span>
+  </div>
+);
+
+const Tag = ({ label, active, color }) => (
+  <span className="text-xs px-2 py-0.5 rounded font-mono"
+    style={{
+      background: active ? `${color||C.cyan}20` : "#1F293780",
+      color: active ? (color||C.cyan) : "#475569",
+      border: `1px solid ${active ? `${color||C.cyan}40` : "#1F293740"}`,
+    }}>
+    {label}
+  </span>
+);
+
+// ─── MAIN APP ─────────────────────────────────────────────────────────────────
+export default function RealRailsConnectivity() {
+  const [selectedNode, setSelectedNode] = useState(null);
+  const [activePath, setActivePath] = useState(null);
+  const [clusterFilter, setClusterFilter] = useState(null);
+  const [edgeTypeFilter, setEdgeTypeFilter] = useState(null);
+  const [sideTab, setSideTab] = useState("paths"); // "paths" | "node" | "intel"
+  const [apiStatus, setApiStatus] = useState("static"); // "static" | "live" | "error"
+
+  // ── API wiring — graceful fallback to static data if backend offline ───────
+  useEffect(() => {
+    fetch("http://localhost:8000/api/schemes")
+      .then(r => r.json())
+      .then(d => { if (d?.data?.length) setApiStatus("live"); })
+      .catch(() => setApiStatus("error"));
+  }, []);
+
+  const handleSelectPath = (path) => {
+    setActivePath(prev => prev?.id === path.id ? null : path);
+    setSelectedNode(null);
+    setSideTab("paths");
+  };
+
+  const handleSelectNode = (node) => {
+    setSelectedNode(node);
+    if (node) setSideTab("node");
+  };
+
+  const nodeEdges = selectedNode
+    ? EDGES.filter(e => e.from === selectedNode.id || e.to === selectedNode.id)
+    : [];
+
+  const stats = {
+    nodes: NODES.length,
+    edges: EDGES.length,
+    clusters: Object.keys(CLUSTER_META).length,
+    maxHops: Math.max(...TX_PATHS.map(p => p.hops.length)),
+  };
+
+  const handleDownload = () => {
+    const data = { nodes: NODES, edges: EDGES, paths: TX_PATHS.map(p => ({ id:p.id, label:p.label, hops:p.hops })) };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type:"application/json" });
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
+    a.download = "real-rails-connectivity-graph.json"; a.click();
+  };
+
+  return (
+    <div style={{ background: C.bg, fontFamily:"'IBM Plex Mono','JetBrains Mono','Fira Code',monospace", minHeight:"100vh" }}
+      className="text-white overflow-hidden flex flex-col">
+
+      {/* ── HEADER ── */}
+      <div style={{ borderBottom:`1px solid ${C.border}`, background:C.bg }} className="px-4 py-2.5 flex items-center justify-between flex-shrink-0">
+        <div className="flex items-center gap-3">
+          <div style={{ color:C.cyan, border:`1px solid ${C.cyan}40`, background:`${C.cyan}08` }}
+            className="rounded px-2 py-0.5 text-xs tracking-widest font-bold">REAL RAILS</div>
+          <span className="text-slate-300 text-sm tracking-wide">Real-Time Payments Map</span>
+          <span className="text-slate-700 text-xs hidden sm:block">PoC #05 · Global Infrastructure Intelligence</span>
+        </div>
+        <div className="flex items-center gap-4">
+          {/* Edge type legend */}
+          <div className="hidden md:flex items-center gap-3">
+            {Object.entries(EDGE_TYPE_COLORS).map(([t, c]) => (
+              <button key={t} onClick={() => setEdgeTypeFilter(edgeTypeFilter === t ? null : t)}
+                className="flex items-center gap-1.5 text-xs transition-all"
+                style={{ color: edgeTypeFilter === t ? c : "#475569", opacity: edgeTypeFilter && edgeTypeFilter !== t ? 0.4 : 1 }}>
+                <div className="w-4 h-0.5 rounded" style={{ background: c }}/>
+                {t}
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-1.5 text-xs text-slate-500">
+            <div className="w-1.5 h-1.5 rounded-full"
+              style={{
+                background: apiStatus === "live" ? "#34D399" : apiStatus === "error" ? "#FB7185" : "#F59E0B",
+                boxShadow: `0 0 6px ${apiStatus === "live" ? "#34D399" : apiStatus === "error" ? "#FB7185" : "#F59E0B"}`,
+              }}/>
+            {apiStatus === "live" ? "API LIVE" : apiStatus === "error" ? "API OFFLINE · STATIC" : "STATIC DATA"}
+          </div>
+        </div>
+      </div>
+
+      {/* ── MAIN LAYOUT 70/30 ── */}
+      <div className="flex flex-1 min-h-0">
+
+        {/* ── LEFT: GRAPH STAGE (70%) ── */}
+        <div className="flex flex-col" style={{ width:"70%", borderRight:`1px solid ${C.border}` }}>
+
+          {/* Cluster filter bar */}
+          <div className="flex flex-wrap items-center gap-1.5 px-3 py-2 border-b flex-shrink-0" style={{ borderColor:C.border }}>
+            <span className="text-xs text-slate-600 mr-1">CLUSTER:</span>
+            <button onClick={() => setClusterFilter(null)}
+              className="text-xs px-2.5 py-1 rounded transition-all"
+              style={{
+                background: !clusterFilter ? `${C.cyan}20` : "#0B1117",
+                color: !clusterFilter ? C.cyan : "#475569",
+                border: `1px solid ${!clusterFilter ? `${C.cyan}60` : C.border}`,
+              }}>ALL</button>
+            {Object.entries(CLUSTER_META).map(([key, meta]) => (
+              <button key={key} onClick={() => setClusterFilter(clusterFilter === key ? null : key)}
+                className="text-xs px-2.5 py-1 rounded transition-all"
+                style={{
+                  background: clusterFilter === key ? `${meta.color}20` : "#0B1117",
+                  color: clusterFilter === key ? meta.color : "#475569",
+                  border: `1px solid ${clusterFilter === key ? `${meta.color}60` : C.border}`,
+                }}>
+                {meta.label}
+              </button>
+            ))}
+            <div className="ml-auto text-xs text-slate-600">
+              {activePath ? <span style={{ color: activePath.color }}>TRACING: {activePath.label}</span> : "Click node or select path →"}
+            </div>
+          </div>
+
+          {/* Graph */}
+          <div className="flex-1 relative overflow-hidden">
+            <ConnectivityGraph
+              selectedNode={selectedNode}
+              onSelectNode={handleSelectNode}
+              activePath={activePath}
+              clusterFilter={clusterFilter}
+              edgeTypeFilter={edgeTypeFilter}
+            />
+
+            {/* Floating stats */}
+            <div className="absolute bottom-3 left-3 flex gap-2 text-xs">
+              <div className="bg-slate-900/80 border border-slate-800 rounded px-2 py-1 font-mono text-slate-500">
+                {stats.nodes} nodes
+              </div>
+              <div className="bg-slate-900/80 border border-slate-800 rounded px-2 py-1 font-mono text-slate-500">
+                {stats.edges} edges
+              </div>
+              <div className="bg-slate-900/80 border border-slate-800 rounded px-2 py-1 font-mono text-slate-500">
+                {stats.clusters} clusters
+              </div>
+            </div>
+          </div>
+
+          {/* Hop tracer footer */}
+          {activePath && (
+            <div className="flex-shrink-0 px-4 py-2.5 border-t" style={{ borderColor:`${activePath.color}30`, background:`${activePath.color}05` }}>
+              <HopTracer path={activePath}/>
+            </div>
+          )}
+        </div>
+
+        {/* ── RIGHT: SIDEBAR (30%) ── */}
+        <div className="flex flex-col" style={{ width:"30%", background:C.surface }}>
+
+          {/* Tabs */}
+          <div style={{ borderBottom:`1px solid ${C.border}` }} className="flex text-xs flex-shrink-0">
+            {[["paths","TX PATHS"],["node","NODE DETAIL"],["intel","INSIGHTS"]].map(([id,label]) => (
+              <button key={id} onClick={() => setSideTab(id)}
+                className="flex-1 py-2.5 transition-all"
+                style={{
+                  color: sideTab === id ? C.cyan : "#475569",
+                  borderBottom: sideTab === id ? `2px solid ${C.cyan}` : "2px solid transparent",
+                  background: sideTab === id ? `${C.cyan}08` : "transparent",
+                }}>
+                {label}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+
+            {/* Section A: headline stats */}
+            <div>
+              <div className="text-xs text-slate-600 mb-2 tracking-widest">GRAPH METRICS</div>
+              <div className="grid grid-cols-2 gap-2">
+                <StatCard value={stats.nodes} label="Entities" accent={C.cyan}/>
+                <StatCard value={stats.edges} label="Connections" accent={C.indigo}/>
+                <StatCard value={stats.clusters} label="Clusters" accent={C.amber}/>
+                <StatCard value={`${stats.maxHops}`} label="Max Hops" accent={C.rose}/>
+              </div>
+            </div>
+
+            {/* ── TRANSACTION PATHS TAB ── */}
+            {sideTab === "paths" && (
+              <div className="space-y-3">
+                <div className="text-xs text-slate-600 tracking-widest">TRANSACTION PATHS</div>
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  Select a path to trace how money or data hops across the network. Each node highlights in sequence.
+                </p>
+                {TX_PATHS.map(path => (
+                  <button key={path.id} onClick={() => handleSelectPath(path)}
+                    className="w-full text-left rounded-xl border p-3 transition-all duration-200"
+                    style={{
+                      borderColor: activePath?.id === path.id ? `${path.color}60` : `${path.color}20`,
+                      background: activePath?.id === path.id ? `${path.color}12` : `${path.color}05`,
+                      boxShadow: activePath?.id === path.id ? `0 0 12px ${path.color}20` : "none",
+                    }}>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs font-bold" style={{ color: path.color }}>{path.label}</span>
+                      <span className="text-xs font-mono text-slate-600">{path.hops.length} hops</span>
+                    </div>
+                    <div className="text-xs text-slate-500 leading-snug">{path.desc}</div>
+                    {activePath?.id === path.id && (
+                      <div className="mt-2 flex gap-1">
+                        {path.hops.map((h, i) => (
+                          <div key={i} className="w-1.5 h-1.5 rounded-full" style={{ background:`${path.color}60` }}/>
+                        ))}
+                      </div>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* ── NODE DETAIL TAB ── */}
+            {sideTab === "node" && (
+              <div className="space-y-3">
+                <div className="text-xs text-slate-600 tracking-widest">NODE INTELLIGENCE</div>
+                {!selectedNode ? (
+                  <div className="flex flex-col items-center justify-center h-32 border border-dashed border-slate-800 rounded-xl text-slate-600 text-xs gap-2">
+                    <span>Click a node on the graph</span>
+                  </div>
+                ) : (
+                  <>
+                    <div className="rounded-xl border p-4" style={{ borderColor:`${selectedNode.color}40`, background:`${selectedNode.color}08` }}>
+                      <div className="text-xs text-slate-500 mb-1 font-mono">{selectedNode.cluster.toUpperCase()} CLUSTER</div>
+                      <div className="text-lg font-bold text-white">{selectedNode.label}</div>
+                      <div className="text-sm mt-0.5" style={{ color: selectedNode.color }}>{selectedNode.sub}</div>
+                      <div className="mt-3 flex flex-wrap gap-1.5">
+                        <Tag label={`SHAPE: ${selectedNode.shape}`} active={true} color={selectedNode.color}/>
+                        <Tag label={`SIZE: ${selectedNode.size}`} active={false}/>
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-slate-600 mb-2">CONNECTED EDGES ({nodeEdges.length})</div>
+                      <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                        {nodeEdges.map((e, i) => {
+                          const dir = e.from === selectedNode.id ? "out" : "in";
+                          const other = dir === "out" ? e.to : e.from;
+                          const otherNode = NODES.find(n => n.id === other);
+                          return (
+                            <div key={i} className="flex items-center justify-between text-xs bg-slate-900/50 rounded px-2.5 py-1.5 border border-slate-800">
+                              <div className="flex items-center gap-2">
+                                <span style={{ color: dir === "out" ? C.cyan : C.emerald, fontSize:"8px" }}>
+                                  {dir === "out" ? "▶" : "◀"}
+                                </span>
+                                <span className="text-slate-400">{otherNode?.label || other}</span>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <span style={{ color: EDGE_TYPE_COLORS[e.type], fontSize:"8px" }}>●</span>
+                                <span className="text-slate-600 font-mono">{e.label}</span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    {/* Paths involving this node */}
+                    <div>
+                      <div className="text-xs text-slate-600 mb-2">APPEARS IN PATHS</div>
+                      <div className="space-y-1">
+                        {TX_PATHS.filter(p => p.hops.includes(selectedNode.id)).map(p => (
+                          <button key={p.id} onClick={() => handleSelectPath(p)}
+                            className="w-full text-left text-xs px-2.5 py-1.5 rounded border transition-all"
+                            style={{ color: p.color, borderColor:`${p.color}30`, background:`${p.color}08` }}>
+                            {p.label} ({p.hops.length} hops)
+                          </button>
+                        ))}
+                        {TX_PATHS.filter(p => p.hops.includes(selectedNode.id)).length === 0 && (
+                          <div className="text-xs text-slate-600">Not part of predefined paths</div>
+                        )}
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* ── INSIGHTS TAB ── */}
+            {sideTab === "intel" && (
+              <div className="space-y-4">
+                {/* Why This Matters */}
+                <div className="border border-sky-900/40 rounded-xl p-3.5" style={{ background:`${C.cyan}08` }}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="w-1.5 h-1.5 rounded-full" style={{ background:C.cyan, boxShadow:`0 0 6px ${C.cyan}` }}/>
+                    <span className="text-xs font-bold tracking-widest" style={{ color:C.cyan }}>WHY THIS MATTERS</span>
+                  </div>
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    Money doesn't move in straight lines. Every payment crosses multiple systems — each adding latency, cost, and counterparty risk. <span style={{ color:C.cyan }}>Mapping the rail</span> reveals where friction lives and where instant settlement unlocks velocity.
+                  </p>
+                </div>
+
+                {/* Who Controls */}
+                <div className="border border-indigo-900/40 rounded-xl p-3.5" style={{ background:`${C.indigo}08` }}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="w-1.5 h-1.5 rounded-full" style={{ background:C.indigo, boxShadow:`0 0 6px ${C.indigo}` }}/>
+                    <span className="text-xs font-bold tracking-widest" style={{ color:C.indigo }}>WHO CONTROLS THE RAIL</span>
+                  </div>
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    Central banks own the settlement layer. Commercial banks gatekeep access. FinTechs ride on top as licensed participants — never owning a direct rail connection.
+                  </p>
+                  <div className="mt-3 space-y-1.5 text-xs">
+                    {[
+                      ["RTP Rails", "Central bank operated", C.cyan],
+                      ["Card Networks", "Private consortium (Visa/MC)", C.indigo],
+                      ["Correspondent", "Bilateral bank agreements", C.rose],
+                      ["Open Banking", "Regulator mandated APIs", C.violet],
+                    ].map(([k,v,c]) => (
+                      <div key={k} className="flex justify-between">
+                        <span style={{ color:c }}>{k}</span>
+                        <span className="text-slate-600">{v}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Edge type legend */}
+                <div className="border border-slate-800 rounded-xl p-3.5">
+                  <div className="text-xs text-slate-600 mb-2 tracking-widest">EDGE TYPES</div>
+                  <div className="space-y-2">
+                    {[
+                      ["payment",    "Money movement — direct fund transfer"],
+                      ["data",       "Information / consent / messaging"],
+                      ["auth",       "Authorization request / approval"],
+                      ["settlement", "Final net settlement between banks"],
+                      ["corridor",   "Cross-border interop link — NEXUS / TIPS / SWIFT GPI"],
+                    ].map(([t, desc]) => (
+                      <div key={t} className="flex items-start gap-2 text-xs">
+                        <div className="w-4 h-0.5 rounded mt-1.5 flex-shrink-0" style={{ background:EDGE_TYPE_COLORS[t] }}/>
+                        <div>
+                          <span style={{ color:EDGE_TYPE_COLORS[t] }}>{t}</span>
+                          <span className="text-slate-600 ml-2">{desc}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Download */}
+            <button onClick={handleDownload}
+              className="w-full text-xs py-2.5 rounded-lg border transition-all duration-200"
+              style={{ color:C.cyan, borderColor:`${C.cyan}40`, background:`${C.cyan}08` }}
+              onMouseEnter={e => e.currentTarget.style.boxShadow = `0 0 12px ${C.cyan}30`}
+              onMouseLeave={e => e.currentTarget.style.boxShadow = "none"}>
+              ↓ Download Graph Data (JSON)
+            </button>
+
+            <div className="text-xs text-slate-700 text-center leading-relaxed pb-2">
+              Sources: FedNow · EPC · World Bank · ISO 20022 · BIS (NEXUS)<br/>
+              Real Rails Intelligence Library · PoC #05
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
