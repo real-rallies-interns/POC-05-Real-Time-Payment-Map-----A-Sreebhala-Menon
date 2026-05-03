@@ -91,12 +91,104 @@ open http://localhost:8000/docs
 | `GET` | `/api/stats` | Aggregate counts |
 | `GET` | `/api/download-sample` | First 5 records for demo |
 
-### Zero Hallucination Policy
+# Real Rails – Real-Time Payments Map API (PoC #05) v2.0
+
+## What Changed — Hardcoded → Live
+
+| Before | After |
+|---|---|
+| Static `RTP_SCHEMES` list only | Core seed **enriched by 3 live sources** |
+| No external data calls | **Claude API** generates per-country AI intelligence |
+| No ecosystem signals | **PyPI** live ISO 20022 release history |
+| No tooling pulse | **npm registry** live payments standards package data |
+| No caching layer | **In-memory cache** with 1-hour TTL + clear endpoint |
+
+## Live Data Sources
+
+| Source | Domain | What It Provides |
+|---|---|---|
+| **Claude AI** | `api.anthropic.com` | Per-country RTP intelligence brief, multi-country comparisons |
+| **PyPI** | `pypi.org` | `pyiso20022` release history → ISO 20022 developer adoption signal |
+| **npm registry** | `registry.npmjs.org` | `iso20022` package versions → payments standards tooling signal |
+
+> **Zero Hallucination Policy preserved**: Central banks publish scheme metadata in PDFs, not JSON APIs.
+> The `RTP_SCHEMES` seed is curator-verified and IS the authoritative source.
+> It is enriched dynamically — not replaced — by the live sources above.
+
+## Setup
 
 ```bash
-GET /api/schemes/XX
-# → 404 { "error": "Country not found or status unknown" }
+pip install fastapi uvicorn httpx
+uvicorn main:app --reload --port 8000
 ```
+
+## API Endpoints
+
+### Original Endpoints (preserved)
+| Endpoint | Description |
+|---|---|
+| `GET /api/schemes` | All 27 RTP schemes + global stats |
+| `GET /api/schemes/{code}` | Single country (e.g. `/api/schemes/IN`) |
+| `GET /api/timeline` | Schemes grouped by launch year |
+| `GET /api/stats` | Aggregate stats for dashboard header |
+| `GET /api/download-sample` | 5-record sample |
+
+### New Live Endpoints
+| Endpoint | Live Source | Description |
+|---|---|---|
+| `GET /api/intelligence/{code}` | **Claude API** | AI-generated country RTP brief (cached 1h) |
+| `GET /api/ai-compare?codes=IN,BR,US` | **Claude API** | Multi-country AI comparison (up to 4) |
+| `GET /api/live/iso20022-pulse` | **PyPI** | pyiso20022 release history + velocity |
+| `GET /api/live/ecosystem-pulse` | **npm** | iso20022 npm package version history |
+| `GET /api/live/combined-pulse` | **PyPI + npm** | Unified ecosystem health dashboard |
+| `GET /api/cache/status` | Internal | View cache contents + TTL |
+| `GET /api/cache/clear` | Internal | Force-clear cache for fresh fetch |
+| `GET /health` | Internal | Service health + live source list |
+
+## Example Calls
+
+```bash
+# Get live AI intelligence for India's UPI
+curl http://localhost:8000/api/intelligence/IN
+
+# Compare FedNow, Pix, UPI, and Faster Payments
+curl "http://localhost:8000/api/ai-compare?codes=US,BR,IN,GB"
+
+# Live ISO 20022 developer ecosystem pulse (PyPI)
+curl http://localhost:8000/api/live/iso20022-pulse
+
+# Live npm payments tooling signal
+curl http://localhost:8000/api/live/ecosystem-pulse
+
+# Full combined live dashboard
+curl http://localhost:8000/api/live/combined-pulse
+```
+
+## Cache Behaviour
+
+- All live API responses are cached for **3600 seconds (1 hour)**
+- Cache key format: `source:identifier:YYYY-MM-DD`
+- Claude intelligence is refreshed daily (date-keyed)
+- PyPI/npm data is fetched fresh after TTL expires
+- Call `/api/cache/clear` to force a fresh fetch immediately
+
+## Architecture
+
+```
+Frontend (Next.js)
+       │
+       ▼
+FastAPI (main.py)
+       │
+       ├── /api/schemes          → RTP_SCHEMES seed (curator-verified)
+       │
+       ├── /api/intelligence/*   → api.anthropic.com (Claude AI) ← LIVE
+       │
+       ├── /api/live/iso20022-*  → pypi.org ← LIVE
+       │
+       └── /api/live/ecosystem-* → registry.npmjs.org ← LIVE
+```
+
 
 Unknown codes always return `404`. No fabricated scheme data is ever returned.
 
